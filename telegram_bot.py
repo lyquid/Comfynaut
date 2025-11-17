@@ -24,9 +24,6 @@ logging.basicConfig(
   level=logging.INFO
 )
 
-# Log the initialization of the bot
-logging.info("Telegram bot is starting up...")
-
 # Define the /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   """
