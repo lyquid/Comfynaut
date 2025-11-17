@@ -1,0 +1,17 @@
+# 🧙‍♂️ Comfynaut Dependencies
+# Install with: pip install -r requirements.txt
+
+# Telegram Bot Framework
+python-telegram-bot>=20.0
+
+# Environment Variable Management
+python-dotenv>=1.0.0
+
+# Web Framework
+fastapi>=0.104.0
+
+# ASGI Server
+uvicorn>=0.24.0
+
+# HTTP Requests
+requests>=2.31.0
