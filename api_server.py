@@ -1,15 +1,15 @@
-# 🏰 api_server.py - Comfynaut Pirate-Ninja Portal, now with QUEST COMPLETION from /history!
-# Upgraded to check ComfyUI /queue AND /history for finished treasures!
+# 🏰 api_server.py - Comfynaut Pirate-Ninja Portal
+# Now with ComfyUI /history support! Sails both /queue and /history to retrieve the finest plunder.
+# If your image is conjured but lost to time in the queue... we'll fetch it from history, like a true spellcaster!
 
-from fastapi import FastAPI  # FastAPI framework for building APIs
-from pydantic import BaseModel  # For data validation and parsing
-import requests  # For making HTTP requests
-import os  # For interacting with the operating system
-import json  # For handling JSON data
-import time  # For time-related operations
-import copy  # For creating deep copies of objects
+from fastapi import FastAPI
+from pydantic import BaseModel
+import requests
+import os
+import json
+import time
+import copy
 
-# Initialize FastAPI application
 app = FastAPI()
 
 WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
@@ -34,12 +34,12 @@ def build_workflow(prompt: str, base_workflow=None):
     else:
         raise ValueError("Could not find node " + POSITIVE_PROMPT_NODE_ID + " for positive prompt in workflow!")
     if "3" in workflow:
-        workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999  # A sprinkle of Chaotic Randomness!
+        workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
     return {"prompt": workflow}
 
 @app.post("/dream")
 async def receive_dream(req: DreamRequest):
-    print(f"✨ Prompt received: '{req.prompt}' - Set sail for new dreams!")
+    print(f"✨ Prompt received: '{req.prompt}'")
     base_workflow = load_workflow()
     payload = build_workflow(req.prompt, base_workflow)
     try:
@@ -55,16 +55,17 @@ async def receive_dream(req: DreamRequest):
         return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
 
     image_url = None
-    # First, check /queue (just in case we are quick enough or ComfyUI is slow with migration)
-    check_history_next = False
-    for i in range(15):  # up to 30 sec, then check /history (queue tends to be quick to empty)
+
+    # First, check /queue for prompt_id and outputs
+    for i in range(15):  # Up to 30 seconds in the queue
         try:
             queue_resp = requests.get(f"{COMFYUI_API}/queue")
             if queue_resp.status_code == 200:
                 queue_data = queue_resp.json()
+                queue_items = []
                 if isinstance(queue_data, list):
                     queue_items = queue_data
-                else:
+                elif isinstance(queue_data, dict):
                     queue_items = queue_data.get("queue_running", []) + queue_data.get("queue_done", [])
                 for item in queue_items:
                     if (
@@ -79,50 +80,49 @@ async def receive_dream(req: DreamRequest):
                                 if images:
                                     imginfo = images[0]
                                     image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
+                                    print(f"🏴‍☠️ Found image in /queue at {2*i}s: {image_url}")
                                     break
                 if image_url:
-                    print(f"🏴‍☠️ Found image in /queue in {2*i} seconds!")
                     break
         except Exception as e:
             print("Polling queue error:", e)
         time.sleep(2)
-    else:
-        # By Thror's Beard! Check /history for ghosts of finished quests...
-        print("🧐 Nothing in /queue; seeking legends in /history...")
+
+    # If not in the queue, search for buried treasure in /history
+    if not image_url:
+        print("🧐 Searched /queue in vain... Seeking lost treasure in /history.")
         try:
             hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
             if hist_resp.status_code == 200:
-                hist_data = hist_resp.json()
-                if (
-                    hist_data.get("status", {}).get("status_str") == "success"
-                    and "outputs" in hist_data
-                ):
-                    for node_output in hist_data["outputs"].values():
+                hist_json = hist_resp.json()
+                data = hist_json.get(prompt_id)
+                if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
+                    for node_output in data["outputs"].values():
                         images = node_output.get("images", [])
                         if images:
                             imginfo = images[0]
                             image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
-                            print("🏆 Image found in /history, the treasure is ours!")
+                            print(f"🏆 Found it in /history: {image_url}")
                             break
                 else:
-                    print(f"History status: {hist_data.get('status')}, outputs: {hist_data.get('outputs')}")
+                    print("ℹ️ No finished outputs found in history for this prompt_id.")
             else:
-                print(f"🛑 No luck fetching from /history/{prompt_id}, status {hist_resp.status_code}")
+                print(f"🛑 Could not fetch /history/{prompt_id}, status {hist_resp.status_code}")
         except Exception as e:
-            print("Polling /history error:", e)
+            print("Polling history error:", e)
 
     if image_url:
         return {
             "status": "success",
             "echo": req.prompt,
             "image_url": image_url,
-            "message": "✨ Art conjured! A dragon (or maybe a car) awaits ye at the image URL."
+            "message": "✨ Art conjured! A dragon (or maybe a truck) awaits ye at the image URL."
         }
     else:
         return {
             "status": "error",
             "echo": req.prompt,
-            "message": "Arrr, no image from ComfyUI—searched /queue and /history, got only goblins. Try again?"
+            "message": "Arrr, no image from ComfyUI—checked the queue and the mists of history. Only goblins. Try again?"
         }
 
 @app.get("/")
