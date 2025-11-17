@@ -24,6 +24,9 @@ logging.basicConfig(
   level=logging.INFO
 )
 
+# Log the initialization of the bot
+logging.info("Telegram bot is starting up...")
+
 # Define the /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   """
@@ -55,15 +58,19 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   await update.message.reply_text("🦜 Taking yer dream to the GPU wizard's castle...")
   try:
+    logging.info("Sending prompt to API server: %s", API_SERVER)
     resp = requests.post(f"{API_SERVER}/dream", json={"prompt": prompt}, timeout=10)  # Send prompt to API
     resp.raise_for_status()
     data = resp.json()  # Parse the JSON response
     msg = data.get("message", "Hmmm, the castle gate is silent...")  # Extract message from response
     logging.info("API response for user %s: %s", update.effective_user.username, msg)
     await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nEcho: {data.get('echo')}")
-  except Exception as e:
-    logging.error("Error while processing /dream command for user %s: %s", update.effective_user.username, e)
+  except requests.exceptions.RequestException as e:
+    logging.error("Request error while processing /dream command for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ Unable to reach the wizard's castle: {e}")
+  except Exception as e:
+    logging.error("Unexpected error while processing /dream command for user %s: %s", update.effective_user.username, e)
+    await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
 # Entry point for the bot
 if __name__ == '__main__':
