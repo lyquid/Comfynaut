@@ -60,67 +60,80 @@ def build_workflow(prompt: str, base_workflow=None):
 # Define the POST endpoint to receive a dream request
 @app.post("/dream")
 async def receive_dream(req: DreamRequest):
-  """
-  Handle the dream request by injecting the prompt into the workflow and interacting with the ComfyUI API.
-  Parameters:
-    req (DreamRequest): The request object containing the user's prompt.
-  Returns:
-    dict: The response containing the status, prompt echo, and image URL or error message.
-  """
-  print(f"✨ Prompt received: '{req.prompt}'")
-  base_workflow = load_workflow()  # Load the base workflow
-  payload = build_workflow(req.prompt, base_workflow)  # Build the workflow with the user's prompt
-  try:
-    resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)  # Send the workflow to the API
-    resp.raise_for_status()
-    result = resp.json()
-    prompt_id = result.get("prompt_id", None)  # Extract the prompt ID from the response
-    if not prompt_id:
-      return {"status": "error", "message": "No prompt_id from ComfyUI!", "echo": req.prompt}
-  except Exception as e:
-    return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
+    """
+    Handle the dream request by injecting the prompt into the workflow and interacting with the ComfyUI API.
+    Parameters:
+      req (DreamRequest): The request object containing the user's prompt.
+    Returns:
+      dict: The response containing the status, prompt echo, and image URL or error message.
+    """
+    print(f"✨ Prompt received: '{req.prompt}'")
+    base_workflow = load_workflow()  # Load the base workflow
+    payload = build_workflow(req.prompt, base_workflow)  # Build the workflow with the user's prompt
+    print("📤 Workflow built and ready to send to ComfyUI.")
 
-  # Poll the API for the result
-  image_url = None
-  for _ in range(60):  # Wait up to 60 seconds
     try:
-      queue_resp = requests.get(f"{COMFYUI_API}/queue")
-      if queue_resp.status_code == 200:
-        queue_data = queue_resp.json()
-        if isinstance(queue_data, list):
-          queue_items = queue_data  # Handle list response
-        else:
-          queue_items = queue_data.get("queue_running", []) + queue_data.get("queue_done", [])  # Handle dict response
-        for item in queue_items:
-          if isinstance(item, dict) and item.get("prompt_id") == prompt_id and "outputs" in item:
-            outputs = item["outputs"]
-            if outputs:
-              for node_output in outputs.values():
-                images = node_output.get("images", [])
-                if images:
-                  imginfo = images[0]
-                  image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
-                  break
-        if image_url:
-          break
+        resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)  # Send the workflow to the API
+        resp.raise_for_status()
+        result = resp.json()
+        prompt_id = result.get("prompt_id", None)  # Extract the prompt ID from the response
+        print(f"✅ Prompt posted to ComfyUI. Prompt ID returned: {prompt_id}")
+        if not prompt_id:
+            print("❌ No prompt_id received from ComfyUI!")
+            return {"status": "error", "message": "No prompt_id from ComfyUI!", "echo": req.prompt}
     except Exception as e:
-      print("Polling queue error:", e)
-    time.sleep(2)  # Wait before retrying
+        print(f"❌ Error posting to ComfyUI: {e}")
+        return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
 
-  # Return the result
-  if image_url:
-    return {
-      "status": "success",
-      "echo": req.prompt,
-      "image_url": image_url,
-      "message": "✨ Art conjured! A dragon (or maybe a car) awaits ye at the image URL."
-    }
-  else:
-    return {
-      "status": "error",
-      "echo": req.prompt,
-      "message": "Arrr, no image from ComfyUI—waited 60 seconds and got only goblins. Try again?"
-    }
+    # Poll the API for the result
+    image_url = None
+    print("🔄 Entering polling loop to check for image result.")
+    for attempt in range(60):  # Wait up to 60 seconds
+        print(f"⏳ Polling attempt {attempt + 1}...")
+        try:
+            queue_resp = requests.get(f"{COMFYUI_API}/queue")
+            if queue_resp.status_code == 200:
+                queue_data = queue_resp.json()
+                if isinstance(queue_data, list):
+                    queue_items = queue_data  # Handle list response
+                else:
+                    queue_items = queue_data.get("queue_running", []) + queue_data.get("queue_done", [])  # Handle dict response
+                print(f"📋 Items in queue: {len(queue_items)}")
+                for item in queue_items:
+                    if isinstance(item, dict) and item.get("prompt_id") == prompt_id and "outputs" in item:
+                        outputs = item["outputs"]
+                        if outputs:
+                            for node_output in outputs.values():
+                                images = node_output.get("images", [])
+                                if images:
+                                    imginfo = images[0]
+                                    image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
+                                    print("🎉 Image found!")
+                                    break
+                    if image_url:
+                        break
+            if image_url:
+                break
+        except Exception as e:
+            print(f"⚠️ Polling queue error: {e}")
+        time.sleep(2)  # Wait before retrying
+
+    # Return the result
+    if image_url:
+        print("✅ Returning image result to client.")
+        return {
+            "status": "success",
+            "echo": req.prompt,
+            "image_url": image_url,
+            "message": "✨ Art conjured! A dragon (or maybe a car) awaits ye at the image URL."
+        }
+    else:
+        print("❌ No image found after polling. Returning error to client.")
+        return {
+            "status": "error",
+            "echo": req.prompt,
+            "message": "Arrr, no image from ComfyUI—waited 60 seconds and got only goblins. Try again?"
+        }
 
 # Define the root endpoint
 @app.get("/")

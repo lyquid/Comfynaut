@@ -55,7 +55,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   await update.message.reply_text("🦜 Taking yer dream to the GPU wizard's castle...")
   try:
-    resp = requests.post(f"{API_SERVER}/dream", json={"prompt": prompt}, timeout=10)  # Send prompt to API
+    resp = requests.post(f"{API_SERVER}/dream", json={"prompt": prompt}, timeout=30)  # Send prompt to API
     resp.raise_for_status()
     data = resp.json()  # Parse the JSON response
     msg = data.get("message", "Hmmm, the castle gate is silent...")  # Extract message from response
