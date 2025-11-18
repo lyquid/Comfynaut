@@ -1,54 +1,36 @@
 # 🦜 telegram_bot.py - Comfynaut Parrot Listener
 # ----------------------------------------------------------------
-# "The wise wizard speaks softly—his parrot yells in all caps."
-#    — Gandalf the Discordant, after too much Red Bull
+# "The wise wizard speaks softly—his parrot yells in all caps...with PICTURES!"
+#    — Gandalf the Pirate, Keeper of the Parrot
 
-# Import necessary libraries
-import os  # For interacting with the operating system
-import logging  # For logging messages
-import requests  # For making HTTP requests
-from dotenv import load_dotenv  # For loading environment variables from a .env file
-from telegram import Update  # Telegram Update object for handling messages
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes  # Telegram bot framework
+import os
+import logging
+import requests
+from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from io import BytesIO
 
-# Load environment variables from .env file
+# Load thy sacred environment variables
 load_dotenv()
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")  # Telegram bot token
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+API_SERVER = os.getenv("COMFY_API_HOST")  # Example: http://192.168.50.18:8000
 
-# Define the API server endpoint
-API_SERVER = os.getenv("COMFY_API_HOST")  # local GPU server
-
-# Configure logging for debugging and monitoring
 logging.basicConfig(
-  format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+  format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
   level=logging.INFO
 )
 
-# Log the initialization of the bot
-logging.info("Telegram bot is starting up...")
+logging.info("Parrot-bot awakens and flaps its wings...")
 
-# Define the /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  """
-  Handle the /start command to greet the user.
-  Parameters:
-    update (Update): The incoming Telegram update.
-    context (ContextTypes.DEFAULT_TYPE): The context for the command.
-  """
   logging.info("Received /start command from user: %s", update.effective_user.username)
   await update.message.reply_text(
     "Arrr, Captain! Comfynaut is ready to ferry your prompt wishes to the stars! 🦜🪐"
   )
 
-# Define the /dream command handler
 async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  """
-  Handle the /dream command to send a prompt to the API server.
-  Parameters:
-    update (Update): The incoming Telegram update.
-    context (ContextTypes.DEFAULT_TYPE): The context for the command, including arguments.
-  """
-  prompt = " ".join(context.args)  # Combine arguments into a single prompt string
+  prompt = " ".join(context.args)
   logging.info("Received /dream command with prompt: '%s' from user: %s", prompt, update.effective_user.username)
 
   if not prompt:
@@ -59,12 +41,31 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
   await update.message.reply_text("🦜 Taking yer dream to the GPU wizard's castle...")
   try:
     logging.info("Sending prompt to API server: %s", API_SERVER)
-    resp = requests.post(f"{API_SERVER}/dream", json={"prompt": prompt}, timeout=10)  # Send prompt to API
+    resp = requests.post(f"{API_SERVER}/dream", json={"prompt": prompt}, timeout=60)
     resp.raise_for_status()
-    data = resp.json()  # Parse the JSON response
-    msg = data.get("message", "Hmmm, the castle gate is silent...")  # Extract message from response
-    logging.info("API response for user %s: %s", update.effective_user.username, msg)
-    await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nEcho: {data.get('echo')}")
+    data = resp.json()
+    msg = data.get("message", "Hmmm, the castle gate is silent...")
+    image_url = data.get("image_url")
+    status = data.get("status")
+    echo = data.get("echo")
+
+    if status == "success" and image_url:
+      try:
+        # Yarrr: Always use the LAN IP for image delivery, not 127.0.0.1!
+        image_url_visible = image_url.replace("127.0.0.1", API_SERVER.split("//")[1].split(":")[0])
+        img_resp = requests.get(image_url_visible, timeout=60)
+        img_resp.raise_for_status()
+        img_bytes = BytesIO(img_resp.content)
+        img_bytes.name = "comfynaut_image.png"
+        caption = f"{msg}\n(Prompt: {prompt})"
+        await update.message.reply_photo(photo=img_bytes, caption=caption)
+        logging.info("Sent image to user %s!", update.effective_user.username)
+      except Exception as img_err:
+        logging.error("Error downloading or sending image for user %s: %s", update.effective_user.username, img_err)
+        await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nEcho: {echo}\nBut alas, the art could not be delivered: {img_err}")
+    else:
+      await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nEcho: {echo}")
+      logging.warning("No image to send for user: %s", update.effective_user.username)
   except requests.exceptions.RequestException as e:
     logging.error("Request error while processing /dream command for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ Unable to reach the wizard's castle: {e}")
@@ -72,15 +73,11 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error("Unexpected error while processing /dream command for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
-# Entry point for the bot
 if __name__ == '__main__':
-  """
-  Initialize the Telegram bot and start polling for updates.
-  """
-  logging.info("Initializing the Telegram bot application...")
-  app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()  # Build the bot application
-  app.add_handler(CommandHandler("start", start))  # Add handler for /start command
-  app.add_handler(CommandHandler("dream", dream))  # Add handler for /dream command
-  logging.info("Bot is now polling for updates.")
+  logging.info("Initializing the Parrot-bot's Telegram mind-link...")
+  app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+  app.add_handler(CommandHandler("start", start))
+  app.add_handler(CommandHandler("dream", dream))
+  logging.info("Bot is now polling for orders among the stars.")
   print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start or /dream")
-  app.run_polling()  # Start polling for updates
+  app.run_polling()
