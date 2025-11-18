@@ -19,6 +19,7 @@ PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 
 class DreamRequest(BaseModel):
   prompt: str
+  workflow: str = None
 
 def load_workflow(path=DEFAULT_WORKFLOW_PATH):
   with open(path, "r") as f:
@@ -73,7 +74,17 @@ def build_workflow(prompt: str, base_workflow=None):
 @app.post("/dream")
 async def receive_dream(req: DreamRequest):
   print(f"✨ Prompt received: '{req.prompt}'")
-  base_workflow = load_workflow()
+  workflow_path = DEFAULT_WORKFLOW_PATH
+  if req.workflow:
+    candidate_path = os.path.join(WORKFLOWS_DIR, req.workflow)
+    if os.path.isfile(candidate_path):
+      workflow_path = candidate_path
+      print(f"📄 Using workflow: {req.workflow}")
+    else:
+      print(f"⚠️ Workflow file not found: {candidate_path}, using default.")
+  else:
+    print("ℹ️ No workflow specified, using default.")
+  base_workflow = load_workflow(workflow_path)
   payload = build_workflow(req.prompt, base_workflow)
   try:
     resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)

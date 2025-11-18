@@ -66,7 +66,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
   logging.info("Received /dream command with prompt: '%s' from user: %s", prompt, update.effective_user.username)
 
   # Retrieve the user's selected workflow or use default
-  workflow_file = context.user_data.get("selected_workflow", "text2img_LORA.json")
+  workflow_file = context.user_data.get("selected_workflow")
   logging.info("Using workflow file: %s", workflow_file)
 
   if not prompt:
