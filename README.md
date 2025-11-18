@@ -28,8 +28,13 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 - 🎯 **Quality Prompts** - Automatically enhances prompts with quality keywords
 - 🌊 **RESTful API** - FastAPI-based server for flexibility
 - 🔒 **Environment-based Config** - Keep your secrets safe with `.env` files
+- 🌐 **Two-Machine Support** - Separate internet-facing bot from GPU machine for security
 
 ## 🚀 Quick Start
+
+### Single Machine Setup
+
+If running everything on one machine:
 
 ```bash
 # 1. Clone the repository
@@ -37,15 +42,48 @@ git clone https://github.com/lyquid/Comfynaut.git
 cd Comfynaut
 
 # 2. Install dependencies
-pip install python-telegram-bot python-dotenv fastapi uvicorn requests
+pip install -r requirements.txt
 
 # 3. Set up your environment variables
 cp .env.example .env
-# Edit .env with your tokens and settings
+# Edit .env with your Telegram token
+# Keep COMFY_API_HOST=http://localhost:8000
 
 # 4. Launch the Comfynaut crew!
 python api_server.py  # In one terminal
 python telegram_bot.py  # In another terminal
+```
+
+### Two Machine Setup (Recommended)
+
+For better security with separate machines:
+
+**On the GPU Machine (Gaming PC):**
+```bash
+# 1. Clone and install on GPU machine
+git clone https://github.com/lyquid/Comfynaut.git
+cd Comfynaut
+pip install -r requirements.txt
+
+# 2. Start only the API server (no .env needed)
+python api_server.py  # Runs on port 8000
+```
+
+**On the Internet-Facing Machine (Ubuntu Server/VPS):**
+```bash
+# 1. Clone and install on Ubuntu server
+git clone https://github.com/lyquid/Comfynaut.git
+cd Comfynaut
+pip install -r requirements.txt
+
+# 2. Set up environment variables
+cp .env.example .env
+# Edit .env:
+#   TELEGRAM_TOKEN=your_bot_token
+#   COMFY_API_HOST=http://192.168.1.100:8000  # IP of your GPU machine
+
+# 3. Start only the Telegram bot
+python telegram_bot.py
 ```
 
 ## 🛠️ Setup
@@ -83,17 +121,38 @@ pip install -r requirements.txt
 
 #### 2️⃣ Configure Environment Variables
 
-Create a `.env` file in the root directory:
+The configuration differs based on your deployment:
 
+**Single Machine Setup:**
 ```env
-# Telegram Bot Configuration
+# .env file (used by telegram_bot.py)
 TELEGRAM_TOKEN=your_telegram_bot_token_here
-
-# ComfyUI API Configuration
 COMFY_API_HOST=http://localhost:8000
 ```
 
+**Two Machine Setup:**
+
+On the **Ubuntu Server** (internet-facing, runs telegram bot):
+```env
+# .env file
+TELEGRAM_TOKEN=your_telegram_bot_token_here
+
+# Point to your GPU machine's IP address and port
+# This can be a local network IP (192.168.x.x) or 
+# a VPN/tunnel IP if machines are in different locations
+COMFY_API_HOST=http://192.168.1.100:8000
+```
+
+On the **GPU Machine** (gaming PC, runs api_server and ComfyUI):
+```
+# No .env file needed!
+# The api_server.py connects to ComfyUI at http://127.0.0.1:8188 (hardcoded)
+# The api_server.py listens on port 8000 for requests from telegram_bot
+```
+
 > 💡 **Tip:** Get your Telegram bot token by talking to [@BotFather](https://t.me/botfather) on Telegram!
+
+> 🔒 **Security Note:** In the two-machine setup, the GPU machine does NOT need to be exposed to the internet. Only ensure the Ubuntu server can reach it via local network, VPN, or secure tunnel.
 
 #### 3️⃣ Set Up ComfyUI
 
@@ -102,6 +161,10 @@ Make sure ComfyUI is running and accessible at `http://127.0.0.1:8188` (or updat
 ## 📖 Usage
 
 ### Starting the Services
+
+The startup process depends on your deployment:
+
+#### Single Machine Setup
 
 You'll need **two terminals** (or use a process manager):
 
@@ -122,6 +185,30 @@ You should see:
 ```
 🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start or /dream
 ```
+
+#### Two Machine Setup
+
+**On GPU Machine (Gaming PC):**
+```bash
+# Start the API server
+python api_server.py
+```
+Output:
+```
+🧙‍♂️ Portals open on http://localhost:8000/
+```
+
+**On Ubuntu Server (Internet-Facing):**
+```bash
+# Start the Telegram bot
+python telegram_bot.py
+```
+Output:
+```
+🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start or /dream
+```
+
+> 📡 **Network Note:** Ensure your Ubuntu server can reach the GPU machine on port 8000. Test with: `curl http://GPU_MACHINE_IP:8000/`
 
 ### Telegram Commands
 
@@ -155,6 +242,12 @@ Try these magical prompts:
 
 ## 🏗️ Architecture
 
+Comfynaut supports two deployment scenarios:
+
+### 🖥️ Single Machine Setup (Simple)
+
+All components run on one machine with a GPU:
+
 ```
 ┌─────────────┐         ┌──────────────┐         ┌─────────────┐
 │  Telegram   │ /dream  │  Comfynaut   │  HTTP   │   ComfyUI   │
@@ -170,11 +263,54 @@ Try these magical prompts:
                         └──────────────┘
 ```
 
+### 🌐 Two Machine Setup (Recommended for Security)
+
+This is the **recommended setup** that separates internet-facing components from your GPU machine:
+
+```
+┌──────────────────────┐                    ┌──────────────────────┐
+│  Ubuntu Server       │                    │  Gaming PC / GPU     │
+│  (Internet-Facing)   │                    │  (Private Network)   │
+│                      │                    │                      │
+│  ┌────────────────┐  │                    │  ┌────────────────┐  │
+│  │ Telegram Bot   │  │    HTTP Request    │  │ API Server     │  │
+│  │ (Port 443/80)  │──┼───────────────────▶│  │ (Port 8000)    │  │
+│  └────────────────┘  │                    │  └────────────────┘  │
+│         ▲            │                    │         │            │
+└─────────┼────────────┘                    │         ▼            │
+          │                                 │  ┌────────────────┐  │
+          │                                 │  │ ComfyUI        │  │
+          │              Image URL          │  │ (Port 8188)    │  │
+          └─────────────────────────────────┼──│                │  │
+                                            │  └────────────────┘  │
+                                            └──────────────────────┘
+          
+Internet ◀──────────▶ Ubuntu Server ◀──────────▶ Gaming PC (No Direct Internet)
+                        (Firewall)              (GPU Processing)
+```
+
+**Why This Setup?**
+
+- 🔒 **Security**: Your expensive GPU machine stays off the internet, protected from attacks
+- 🎮 **Gaming PC Protection**: Keep your gaming rig isolated while still using it for AI
+- 🌊 **Network Separation**: Only the lightweight Telegram bot faces the internet
+- 🛡️ **Firewall Friendly**: Gaming PC can be behind NAT/firewall with no port forwarding
+- 💰 **Cost Effective**: Use a cheap VPS/cloud server for the bot, GPU hardware at home
+
 ### Components
 
 - **`telegram_bot.py`** 🦜 - The Telegram interface, your friendly parrot
+  - Runs on the **internet-facing machine** (Ubuntu server, VPS, etc.)
+  - Receives commands from Telegram users
+  - Forwards requests to the API server
+  
 - **`api_server.py`** 🏰 - FastAPI server that talks to ComfyUI
+  - Runs on the **GPU machine** (gaming PC, workstation, etc.)
+  - Can be on a private network, not exposed to internet
+  - Communicates with local ComfyUI instance
+  
 - **`main.py`** 🚀 - Entry point (currently a simple launcher)
+
 - **`workflows/`** 📁 - ComfyUI workflow JSON files
   - `text2img_LORA.json` - Default text-to-image workflow with LoRA support
   - `default.json` - Basic workflow template
@@ -203,37 +339,126 @@ You can customize this in `api_server.py` by modifying the `PROMPT_HELPERS` vari
 
 ### API Server Settings (`api_server.py`)
 
+These settings apply to the machine running the API server (GPU machine):
+
 - **`COMFYUI_API`** - ComfyUI API endpoint (default: `http://127.0.0.1:8188`)
+  - This should always point to localhost since ComfyUI runs on the same machine
 - **`POSITIVE_PROMPT_NODE_ID`** - Node ID for positive prompt injection (default: `"16"`)
 - **`PROMPT_HELPERS`** - Quality keywords appended to prompts
 - **`DEFAULT_WORKFLOW_PATH`** - Path to the workflow JSON file
 
 ### Telegram Bot Settings (`.env`)
 
+These settings apply to the machine running the Telegram bot:
+
 - **`TELEGRAM_TOKEN`** - Your bot token from BotFather
-- **`COMFY_API_HOST`** - Your Comfynaut API server URL (default: `http://localhost:8000`)
+- **`COMFY_API_HOST`** - URL to reach your Comfynaut API server
+  - **Single machine:** `http://localhost:8000`
+  - **Two machines:** `http://192.168.1.100:8000` (replace with your GPU machine's IP)
+
+### Network Configuration for Two-Machine Setup
+
+When using separate machines:
+
+1. **GPU Machine (api_server.py):**
+   - Listens on `0.0.0.0:8000` (all interfaces)
+   - Only needs to be reachable by Ubuntu server, NOT the internet
+   - ComfyUI runs on the same machine at `127.0.0.1:8188`
+
+2. **Ubuntu Server (telegram_bot.py):**
+   - Connects to Telegram API (internet access required)
+   - Connects to GPU machine via `COMFY_API_HOST`
+   - Can be behind firewall (outbound connections only)
+
+3. **Network Options:**
+   - **Local Network:** Direct connection via LAN (192.168.x.x)
+   - **VPN:** Connect machines via WireGuard, Tailscale, etc.
+   - **SSH Tunnel:** `ssh -L 8000:localhost:8000 gpu-machine` on Ubuntu server
+   - **Reverse Proxy:** Use nginx/caddy on GPU machine (advanced)
 
 ## 🐛 Troubleshooting
 
-### Bot doesn't respond
+### General Issues
+
+#### Bot doesn't respond
 - ✅ Check that both `api_server.py` and `telegram_bot.py` are running
 - ✅ Verify your `TELEGRAM_TOKEN` in `.env` is correct
 - ✅ Make sure ComfyUI is running at the specified port
 
-### "Unable to reach the wizard's castle"
+#### "Unable to reach the wizard's castle"
 - ✅ Ensure `api_server.py` is running on port 8000
 - ✅ Check `COMFY_API_HOST` in your `.env` file
 - ✅ Verify ComfyUI is accessible at `http://127.0.0.1:8188`
 
-### Images take too long or don't generate
+#### Images take too long or don't generate
 - ✅ Check ComfyUI logs for errors
 - ✅ Ensure your GPU drivers are properly installed
 - ✅ Verify the workflow JSON file is valid
 - ✅ Try a simpler prompt first
 
-### "Could not find node 16 for positive prompt"
+#### "Could not find node 16 for positive prompt"
 - ✅ Your workflow file might have a different node ID
 - ✅ Update `POSITIVE_PROMPT_NODE_ID` in `api_server.py` to match your workflow
+
+### Two-Machine Setup Issues
+
+#### Telegram bot can't reach API server
+```bash
+# On Ubuntu server, test connectivity:
+curl http://GPU_MACHINE_IP:8000/
+
+# Should return: {"message": "Welcome to Comfynaut..."}
+```
+
+**If it fails:**
+- ✅ Check `COMFY_API_HOST` in `.env` has the correct IP
+- ✅ Verify GPU machine firewall allows port 8000
+  ```bash
+  # On GPU machine (Linux):
+  sudo ufw allow 8000/tcp
+  
+  # On GPU machine (Windows):
+  # Add inbound rule for port 8000 in Windows Firewall
+  ```
+- ✅ Ensure both machines are on the same network (or connected via VPN)
+- ✅ Try pinging the GPU machine from Ubuntu server
+  ```bash
+  ping GPU_MACHINE_IP
+  ```
+
+#### Connection refused / timeout errors
+- ✅ Verify `api_server.py` is listening on `0.0.0.0`, not just `127.0.0.1`
+  - This is the default when using `uvicorn.run(..., host="0.0.0.0", port=8000)`
+- ✅ Check if a router/NAT is between the machines
+  - May need port forwarding or VPN solution
+- ✅ Test with telnet:
+  ```bash
+  telnet GPU_MACHINE_IP 8000
+  ```
+
+#### API server can't reach ComfyUI
+- ✅ Verify ComfyUI is running on the GPU machine
+- ✅ Check ComfyUI is listening on port 8188
+  ```bash
+  # On GPU machine:
+  netstat -tlnp | grep 8188  # Linux
+  netstat -an | findstr 8188  # Windows
+  ```
+- ✅ ComfyUI must be on the same machine as `api_server.py`
+
+### Network Security Tips
+
+For the two-machine setup:
+
+- 🔒 **Do NOT expose port 8000 to the internet** on your GPU machine
+- 🔒 Only allow connections from your Ubuntu server's IP
+- 🔒 Use firewall rules to restrict access:
+  ```bash
+  # On GPU machine, allow only from Ubuntu server:
+  sudo ufw allow from UBUNTU_SERVER_IP to any port 8000
+  ```
+- 🔒 Consider using a VPN (WireGuard, Tailscale) for secure machine-to-machine communication
+- 🔒 The Ubuntu server only needs outbound internet access (no inbound ports required)
 
 ## 🎨 Advanced Usage
 
