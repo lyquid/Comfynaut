@@ -15,7 +15,6 @@ app = FastAPI()
 WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
 DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "text2img_LORA.json")
 COMFYUI_API = "http://127.0.0.1:8188"
-POSITIVE_PROMPT_NODE_ID = "16"  # Node ID for positive prompt in default workflow
 PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 
 class DreamRequest(BaseModel):
@@ -25,14 +24,48 @@ def load_workflow(path=DEFAULT_WORKFLOW_PATH):
   with open(path, "r") as f:
     return json.load(f)
 
+def find_positive_prompt_node(workflow):
+  """
+  Dynamically find the positive prompt node in a ComfyUI workflow.
+  
+  Strategy:
+  1. Look for CLIPTextEncode nodes with "positive" in the title (case-insensitive)
+  2. If not found, use the first CLIPTextEncode node
+  3. Raise an error if no suitable node is found
+  
+  Returns the node ID as a string.
+  """
+  clip_text_encode_nodes = []
+  
+  for node_id, node_data in workflow.items():
+    if isinstance(node_data, dict) and node_data.get("class_type") == "CLIPTextEncode":
+      title = node_data.get("_meta", {}).get("title", "").lower()
+      clip_text_encode_nodes.append((node_id, title))
+  
+  if not clip_text_encode_nodes:
+    raise ValueError("No CLIPTextEncode nodes found in workflow!")
+  
+  # First, try to find a node with "positive" in the title
+  for node_id, title in clip_text_encode_nodes:
+    if "positive" in title:
+      return node_id
+  
+  # If no explicit positive prompt found, use the first CLIPTextEncode node
+  return clip_text_encode_nodes[0][0]
+
 def build_workflow(prompt: str, base_workflow=None):
   if base_workflow is None:
     base_workflow = load_workflow()
   workflow = copy.deepcopy(base_workflow)
-  if POSITIVE_PROMPT_NODE_ID in workflow:
-    workflow[POSITIVE_PROMPT_NODE_ID]["inputs"]["text"] = prompt + PROMPT_HELPERS
+  
+  # Dynamically find the positive prompt node
+  positive_prompt_node_id = find_positive_prompt_node(workflow)
+  
+  if positive_prompt_node_id in workflow:
+    workflow[positive_prompt_node_id]["inputs"]["text"] = prompt + PROMPT_HELPERS
   else:
-    raise ValueError("Could not find node " + POSITIVE_PROMPT_NODE_ID + " for positive prompt in workflow!")
+    raise ValueError(f"Could not find node {positive_prompt_node_id} for positive prompt in workflow!")
+  
   if "3" in workflow:
     workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
   return {"prompt": workflow}

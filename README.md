@@ -188,7 +188,7 @@ Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory.
 1. Export your workflow from ComfyUI as API format JSON
 2. Save it to the `workflows/` directory
 3. Update `DEFAULT_WORKFLOW_PATH` in `api_server.py` to point to your workflow
-4. Make sure your workflow has a text input node (default is node ID "16")
+4. Make sure your workflow has at least one `CLIPTextEncode` node (the system will automatically detect the positive prompt node)
 
 ### Prompt Enhancement
 
@@ -204,9 +204,10 @@ You can customize this in `api_server.py` by modifying the `PROMPT_HELPERS` vari
 ### API Server Settings (`api_server.py`)
 
 - **`COMFYUI_API`** - ComfyUI API endpoint (default: `http://127.0.0.1:8188`)
-- **`POSITIVE_PROMPT_NODE_ID`** - Node ID for positive prompt injection (default: `"16"`)
 - **`PROMPT_HELPERS`** - Quality keywords appended to prompts
 - **`DEFAULT_WORKFLOW_PATH`** - Path to the workflow JSON file
+
+**Note:** The positive prompt node is automatically detected from your workflow. The system looks for `CLIPTextEncode` nodes and prioritizes those with "positive" in their title.
 
 ### Telegram Bot Settings (`.env`)
 
@@ -231,9 +232,10 @@ You can customize this in `api_server.py` by modifying the `PROMPT_HELPERS` vari
 - ✅ Verify the workflow JSON file is valid
 - ✅ Try a simpler prompt first
 
-### "Could not find node 16 for positive prompt"
-- ✅ Your workflow file might have a different node ID
-- ✅ Update `POSITIVE_PROMPT_NODE_ID` in `api_server.py` to match your workflow
+### "No CLIPTextEncode nodes found in workflow"
+- ✅ Your workflow file must have at least one `CLIPTextEncode` node for text prompts
+- ✅ Verify the workflow JSON file is properly exported from ComfyUI in API format
+- ✅ Check that the workflow contains nodes with `"class_type": "CLIPTextEncode"`
 
 ## 🎨 Advanced Usage
 
