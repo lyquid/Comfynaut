@@ -14,6 +14,7 @@ from io import BytesIO
 # Your available ComfyUI workflows (add yours here!)
 WORKFLOWS = {
   "Basic SDXL t2i": "basic_sdxl_t2i.json",
+  "cyberrealisticPony141 t2i": "cyberrealisticPony141_t2i.json",
   "Manga (NSFW) t2i": "text2img_LORA.json"
 }
 
