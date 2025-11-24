@@ -48,10 +48,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   await update.message.reply_text(
     "Arrr, Captain! Comfynaut is ready to ferry your prompt wishes to the stars! 🦜🪐\n\n"
     "Commands:\n"
-    "• /workflows to choose your favorite wizard spell style."
+    "• /workflows - Choose your favorite wizard spell style\n"
     "• /dream <prompt> - Generate an image from text\n"
-    "• Send a photo with a caption - Transform your image (img2img)"
-    
+    "• /img2vid - Convert a photo to video (reply to a photo)\n"
+    "• Send a photo with a caption - Transform your image (img2img)\n\n"
+    "⚠️ Note: Video generation can take 10+ minutes!"
   )
 
 async def workflows(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -216,14 +217,127 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error("Unexpected error while processing photo for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
+async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Handle /img2vid command - convert an image to video.
+  
+  User should reply to a photo with /img2vid command.
+  Optional args: motion_bucket_id (1-255) and fps (default 8)
+  """
+  logging.info("Received /img2vid command from user: %s", update.effective_user.username)
+  
+  # Check if this is a reply to a photo
+  reply_message = update.message.reply_to_message
+  if not reply_message or not reply_message.photo:
+    await update.message.reply_text(
+      "⚡ To create a video, reply to a photo with /img2vid\n\n"
+      "Optional parameters:\n"
+      "• /img2vid 127 8 - motion intensity (1-255) and fps\n\n"
+      "⚠️ Video generation takes 10+ minutes!"
+    )
+    return
+  
+  # Parse optional arguments
+  motion_bucket_id = 127  # Default
+  fps = 8  # Default
+  args = context.args
+  if len(args) >= 1:
+    try:
+      motion_bucket_id = max(1, min(255, int(args[0])))
+    except ValueError:
+      pass
+  if len(args) >= 2:
+    try:
+      fps = max(1, min(30, int(args[1])))
+    except ValueError:
+      pass
+  
+  logging.info("img2vid params: motion_bucket_id=%d, fps=%d", motion_bucket_id, fps)
+  
+  await update.message.reply_text(
+    f"🎬 Converting image to video...\n"
+    f"Motion: {motion_bucket_id}, FPS: {fps}\n\n"
+    "⏳ This may take 10+ minutes. Please be patient!"
+  )
+  
+  try:
+    # Get the largest photo from the replied message
+    photo = reply_message.photo[-1]
+    
+    # Download the photo
+    photo_file = await context.bot.get_file(photo.file_id)
+    photo_bytes = await photo_file.download_as_bytearray()
+    
+    # Encode to base64
+    image_base64 = base64.b64encode(photo_bytes).decode('utf-8')
+    
+    # Send to API server with extended timeout (15 minutes)
+    logging.info("Sending img2vid request to API server: %s", API_SERVER)
+    
+    # Use extended timeout for video generation (15 minutes)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=900.0)) as client:
+      resp = await client.post(
+        f"{API_SERVER}/img2vid",
+        json={
+          "image_data": image_base64,
+          "motion_bucket_id": motion_bucket_id,
+          "fps": fps
+        }
+      )
+      resp.raise_for_status()
+      data = resp.json()
+    
+      msg = data.get("message", "Hmmm, the castle gate is silent...")
+      video_url = data.get("video_url")
+      status = data.get("status")
+    
+      if status == "success" and video_url:
+        try:
+          # Fix URL if it's localhost
+          parsed_api = urlparse(API_SERVER)
+          video_url_visible = video_url.replace("127.0.0.1", parsed_api.hostname)
+          
+          vid_resp = await client.get(video_url_visible, timeout=120)
+          vid_resp.raise_for_status()
+          
+          vid_bytes = BytesIO(vid_resp.content)
+          vid_bytes.name = "comfynaut_video.mp4"
+          
+          caption = f"🎬 {msg}\n(Motion: {motion_bucket_id}, FPS: {fps})"
+          await update.message.reply_video(video=vid_bytes, caption=caption)
+          logging.info("Sent video to user %s!", update.effective_user.username)
+        except Exception as vid_err:
+          logging.error("Error downloading or sending video for user %s: %s", update.effective_user.username, vid_err)
+          await update.message.reply_text(
+            f"🏰 Wizard's castle: {msg}\n"
+            f"But alas, the video could not be delivered: {vid_err}\n"
+            f"Video URL: {video_url_visible}"
+          )
+      else:
+        await update.message.reply_text(f"🏰 Wizard's castle: {msg}")
+        logging.warning("No video to send for user: %s", update.effective_user.username)
+  
+  except httpx.TimeoutException:
+    logging.error("Timeout while processing img2vid for user %s", update.effective_user.username)
+    await update.message.reply_text(
+      "⏰ The video generation is taking too long.\n"
+      "The wizard's castle might still be working on it. Try again later?"
+    )
+  except httpx.RequestError as e:
+    logging.error("Request error while processing img2vid for user %s: %s", update.effective_user.username, e)
+    await update.message.reply_text(f"⚠️ Unable to reach the wizard's castle: {e}")
+  except Exception as e:
+    logging.error("Unexpected error while processing img2vid for user %s: %s", update.effective_user.username, e)
+    await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
+
 if __name__ == '__main__':
   logging.info("Initializing the Parrot-bot's Telegram mind-link...")
   app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
   app.add_handler(CommandHandler("start", start))
   app.add_handler(CommandHandler("dream", dream))
   app.add_handler(CommandHandler("workflows", workflows))
+  app.add_handler(CommandHandler("img2vid", img2vid))
   app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
   app.add_handler(CallbackQueryHandler(button))
   logging.info("Bot is now polling for orders among the stars.")
-  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, or /workflows")
+  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, /workflows, or /img2vid")
   app.run_polling()
