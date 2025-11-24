@@ -26,6 +26,7 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 - ⚡ **Fast & Asynchronous** - Queue-based processing for smooth sailing
 - 🔧 **Customizable Workflows** - Support for custom ComfyUI workflow JSON files
 - 🎯 **Quality Prompts** - Automatically enhances prompts with quality keywords
+- 🖼️ **img2img Support** - Transform existing images with text prompts
 - 🌊 **RESTful API** - FastAPI-based server for flexibility
 - 🔒 **Environment-based Config** - Keep your secrets safe with `.env` files
 - 🌐 **Two-Machine Support** - Separate internet-facing bot from GPU machine for security
@@ -220,7 +221,7 @@ Once your bot is running, open Telegram and:
 ```
 Response: *"Arrr, Captain! Comfynaut is ready to ferry your prompt wishes to the stars! 🦜🪐"*
 
-#### `/dream` - Generate an image 🎨
+#### `/dream` - Generate an image from text 🎨
 ```
 /dream a majestic dragon flying over a medieval castle at sunset
 ```
@@ -229,16 +230,37 @@ The bot will:
 1. 🦜 Acknowledge your request
 2. 🏰 Send it to the GPU wizard's castle (ComfyUI)
 3. ⏳ Wait for the image to be generated
-4. 🖼️ Send you the image URL
+4. 🖼️ Send you the generated image
+
+#### Photo + Caption - Transform an existing image 🎨🖼️
+
+Simply send a photo to the bot with a caption describing how you want to transform it:
+
+1. 📸 Send or forward any photo to the bot
+2. ✏️ Add a caption describing the transformation you want
+3. 🪄 The bot will apply your changes and send back the transformed image
+
+**Examples:**
+- Send a photo with caption: `change the color of the car to blue`
+- Send a photo with caption: `make it look like a painting`
+- Send a photo with caption: `add a sunset in the background`
+- Send a photo with caption: `convert to anime style`
 
 ### Example Prompts
 
 Try these magical prompts:
 
+**Text-to-Image (/dream):**
 - `/dream cyberpunk city at night with neon lights`
 - `/dream cute robot reading a book in a cozy library`
 - `/dream fantasy landscape with floating islands and waterfalls`
 - `/dream portrait of a friendly dragon wearing glasses`
+
+**Image-to-Image (photo + caption):**
+- Send a landscape photo with caption: `make it look like sunset`
+- Send a portrait with caption: `add glasses and a wizard hat`
+- Send a car photo with caption: `change the color to red`
+- Send any image with caption: `convert to cyberpunk style`
 
 ## 🏗️ Architecture
 
@@ -313,18 +335,27 @@ Internet ◀──────────▶ Ubuntu Server ◀─────�
 
 - **`workflows/`** 📁 - ComfyUI workflow JSON files
   - `text2img_LORA.json` - Default text-to-image workflow with LoRA support
+  - `img2img_LORA.json` - Image-to-image workflow for transforming existing images
   - `default.json` - Basic workflow template
 
 ## 🎯 Workflow Customization
 
-Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory. The default workflow is `text2img_LORA.json`.
+Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory. The default workflows are:
+- `text2img_LORA.json` - For text-to-image generation
+- `img2img_LORA.json` - For image-to-image transformation
+
+> ⚠️ **Important**: The workflow files contain references to specific model files (e.g., `oneObsession_1424DNsfw.safetensors` and `22-nsfw-HIGH-e6.safetensors`). You will need to update these to match the models installed in your ComfyUI setup. Edit the workflow JSON files and replace the `ckpt_name` and `lora_name` values with your available models.
 
 ### Using Custom Workflows
 
 1. Export your workflow from ComfyUI as API format JSON
 2. Save it to the `workflows/` directory
-3. Update `DEFAULT_WORKFLOW_PATH` in `api_server.py` to point to your workflow
-4. Make sure your workflow has a text input node (default is node ID "16")
+3. Update the appropriate path in `api_server.py`:
+   - `DEFAULT_WORKFLOW_PATH` for text-to-image
+   - `IMG2IMG_WORKFLOW_PATH` for image-to-image
+4. Make sure your workflow has:
+   - A text input node (default is node ID "16" for positive prompt)
+   - For img2img: An image load node (default is node ID "59")
 
 ### Prompt Enhancement
 
@@ -344,8 +375,10 @@ These settings apply to the machine running the API server (GPU machine):
 - **`COMFYUI_API`** - ComfyUI API endpoint (default: `http://127.0.0.1:8188`)
   - This should always point to localhost since ComfyUI runs on the same machine
 - **`POSITIVE_PROMPT_NODE_ID`** - Node ID for positive prompt injection (default: `"16"`)
+- **`IMAGE_LOAD_NODE_ID`** - Node ID for loading input images in img2img (default: `"59"`)
 - **`PROMPT_HELPERS`** - Quality keywords appended to prompts
-- **`DEFAULT_WORKFLOW_PATH`** - Path to the workflow JSON file
+- **`DEFAULT_WORKFLOW_PATH`** - Path to the text2img workflow JSON file
+- **`IMG2IMG_WORKFLOW_PATH`** - Path to the img2img workflow JSON file
 
 ### Telegram Bot Settings (`.env`)
 
