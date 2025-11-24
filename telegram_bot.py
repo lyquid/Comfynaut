@@ -296,7 +296,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
           parsed_api = urlparse(API_SERVER)
           video_url_visible = video_url.replace("127.0.0.1", parsed_api.hostname)
           
-          vid_resp = await client.get(video_url_visible, timeout=120)
+          vid_resp = await client.get(video_url_visible, timeout=300)
           vid_resp.raise_for_status()
           
           vid_bytes = BytesIO(vid_resp.content)

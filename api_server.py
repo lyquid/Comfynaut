@@ -23,6 +23,7 @@ PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 # Video generation timeout settings (videos can take 10+ minutes)
 VIDEO_POLL_INTERVAL = 10  # seconds between polling
 VIDEO_MAX_POLL_ATTEMPTS = 90  # 90 * 10 seconds = 15 minutes max wait
+VIDEO_PROGRESS_LOG_INTERVAL = 60  # Log progress every 60 seconds
 
 class DreamRequest(BaseModel):
   prompt: str
@@ -366,7 +367,8 @@ def wait_for_video_generation(prompt_id: str):
   
   for i in range(VIDEO_MAX_POLL_ATTEMPTS):
     elapsed = i * VIDEO_POLL_INTERVAL
-    if i % 6 == 0:  # Log progress every minute
+    progress_log_polls = VIDEO_PROGRESS_LOG_INTERVAL // VIDEO_POLL_INTERVAL
+    if i % progress_log_polls == 0:  # Log progress every VIDEO_PROGRESS_LOG_INTERVAL seconds
       print(f"🎬 Video generation in progress... ({elapsed}s elapsed)")
     try:
       queue_resp = requests.get(f"{COMFYUI_API}/queue")
