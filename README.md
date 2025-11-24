@@ -258,25 +258,17 @@ Simply send a photo to the bot with a caption describing how you want to transfo
 
 #### `/img2vid` - Convert an image to video 🎬
 
-Reply to any photo with the `/img2vid` command to animate it using Stable Video Diffusion:
+Reply to any photo with the `/img2vid` command to animate it using WAN image-to-video:
 
 ```
 /img2vid
 ```
-
-**Optional parameters:**
-- `/img2vid 127 8` - motion intensity (1-255) and fps
 
 **How to use:**
 1. 📸 Send a photo to the chat (or find an existing one)
 2. 📝 Reply to that photo with `/img2vid`
 3. ⏳ Wait patiently (video generation takes 10+ minutes!)
 4. 🎬 Receive your animated video
-
-**Tips:**
-- Higher motion values (150-255) = more movement
-- Lower motion values (50-100) = subtle animation
-- FPS 6-12 works well for most videos
 
 ⚠️ **Note:** Video generation is GPU-intensive and can take 10+ minutes depending on your hardware.
 
@@ -298,7 +290,6 @@ Try these magical prompts:
 
 **Image-to-Video (/img2vid):**
 - Reply to any photo with `/img2vid` to animate it
-- `/img2vid 200 12` - Higher motion (200) and faster fps (12)
 - ⚠️ Video generation can take 10+ minutes!
 
 ## 🏗️ Architecture
@@ -376,7 +367,7 @@ Internet ◀──────────▶ Ubuntu Server ◀─────�
   - Dynamically loaded at runtime - add any `.json` workflow here
   - `text2img_LORA.json` - Default text-to-image workflow with LoRA support
   - `img2img - CyberRealistic Pony.json` - Image-to-image workflow for transforming existing images
-  - `img2vid.json` - Image-to-video workflow using Stable Video Diffusion
+  - `img2vid.json` - Image-to-video workflow using WAN i2v
   - `default.json` - Basic workflow template
   - Users can select workflows via `/workflows` command in Telegram
 
@@ -385,7 +376,7 @@ Internet ◀──────────▶ Ubuntu Server ◀─────�
 Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory. The default workflows are:
 - `text2img_LORA.json` - For text-to-image generation
 - `img2img_LORA.json` - For image-to-image transformation
-- `img2vid.json` - For image-to-video generation (uses SVD)
+- `img2vid.json` - For image-to-video generation (uses WAN i2v)
 
 > ⚠️ **Important**: The workflow files contain references to specific model files (e.g., `oneObsession_1424DNsfw.safetensors` and `22-nsfw-HIGH-e6.safetensors`). You will need to update these to match the models installed in your ComfyUI setup. Edit the workflow JSON files and replace the `ckpt_name` and `lora_name` values with your available models.
 
@@ -398,13 +389,14 @@ Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory.
 5. Make sure your workflow has:
    - At least one `CLIPTextEncode` node (preferably with "positive" in the title)
    - For img2img: A `LoadImage` node for the input image
-   - For img2vid: A `LoadImage` node, `SVD_img2vid_Conditioning` node, and `VHS_VideoCombine` node
+   - For img2vid: A `LoadImage` node, `Seed (rgthree)` node, and `VHS_VideoCombine` node
    - A `KSampler` node for seed randomization
 
 **Note:** The system automatically detects:
 - Positive prompt nodes (looks for `CLIPTextEncode` with "positive" in title)
 - Image load nodes (looks for `LoadImage` class type)
 - KSampler nodes (for dynamic seed generation)
+- Seed (rgthree) nodes (for video workflows)
 
 ### Prompt Enhancement
 

@@ -218,10 +218,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
 async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  """Handle /img2vid command - convert an image to video.
+  """Handle /img2vid command - convert an image to video using WAN i2v.
   
   User should reply to a photo with /img2vid command.
-  Optional args: motion_bucket_id (1-255) and fps (default 8)
   """
   logging.info("Received /img2vid command from user: %s", update.effective_user.username)
   
@@ -230,32 +229,12 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
   if not reply_message or not reply_message.photo:
     await update.message.reply_text(
       "⚡ To create a video, reply to a photo with /img2vid\n\n"
-      "Optional parameters:\n"
-      "• /img2vid 127 8 - motion intensity (1-255) and fps\n\n"
       "⚠️ Video generation takes 10+ minutes!"
     )
     return
   
-  # Parse optional arguments
-  motion_bucket_id = 127  # Default
-  fps = 8  # Default
-  args = context.args
-  if len(args) >= 1:
-    try:
-      motion_bucket_id = max(1, min(255, int(args[0])))
-    except ValueError:
-      pass
-  if len(args) >= 2:
-    try:
-      fps = max(1, min(30, int(args[1])))
-    except ValueError:
-      pass
-  
-  logging.info("img2vid params: motion_bucket_id=%d, fps=%d", motion_bucket_id, fps)
-  
   await update.message.reply_text(
-    f"🎬 Converting image to video...\n"
-    f"Motion: {motion_bucket_id}, FPS: {fps}\n\n"
+    "🎬 Converting image to video...\n\n"
     "⏳ This may take 10+ minutes. Please be patient!"
   )
   
@@ -277,11 +256,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=900.0)) as client:
       resp = await client.post(
         f"{API_SERVER}/img2vid",
-        json={
-          "image_data": image_base64,
-          "motion_bucket_id": motion_bucket_id,
-          "fps": fps
-        }
+        json={"image_data": image_base64}
       )
       resp.raise_for_status()
       data = resp.json()
@@ -302,7 +277,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
           vid_bytes = BytesIO(vid_resp.content)
           vid_bytes.name = "comfynaut_video.mp4"
           
-          caption = f"🎬 {msg}\n(Motion: {motion_bucket_id}, FPS: {fps})"
+          caption = f"🎬 {msg}"
           await update.message.reply_video(video=vid_bytes, caption=caption)
           logging.info("Sent video to user %s!", update.effective_user.username)
         except Exception as vid_err:

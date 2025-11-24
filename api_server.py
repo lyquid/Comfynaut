@@ -35,8 +35,6 @@ class Img2ImgRequest(BaseModel):
 
 class Img2VidRequest(BaseModel):
   image_data: str  # Base64 encoded image
-  motion_bucket_id: int = 127  # Motion intensity (1-255, higher = more motion)
-  fps: int = 8  # Frames per second for the output video
 
 def load_workflow(path=DEFAULT_WORKFLOW_PATH):
   with open(path, "r") as f:
@@ -70,18 +68,25 @@ def find_ksampler_node(workflow):
       return node_id
   raise ValueError("Could not find KSampler node in workflow!")
 
-def find_svd_conditioning_node(workflow):
-  """Find the SVD_img2vid_Conditioning node for video generation."""
+def find_seed_node(workflow):
+  """Find the Seed (rgthree) node for video generation workflows."""
   for node_id, node_data in workflow.items():
-    if node_data.get("class_type") == "SVD_img2vid_Conditioning":
+    if node_data.get("class_type") == "Seed (rgthree)":
       return node_id
-  raise ValueError("Could not find SVD_img2vid_Conditioning node in workflow!")
+  raise ValueError("Could not find Seed (rgthree) node in workflow!")
 
-def find_video_combine_node(workflow):
-  """Find the VHS_VideoCombine node for video output."""
+def find_video_combine_node(workflow, require_save_output=False):
+  """Find the VHS_VideoCombine node for video output.
+  
+  If require_save_output is True, only return nodes with save_output=True.
+  """
   for node_id, node_data in workflow.items():
     if node_data.get("class_type") == "VHS_VideoCombine":
-      return node_id
+      if require_save_output:
+        if node_data.get("inputs", {}).get("save_output", False):
+          return node_id
+      else:
+        return node_id
   raise ValueError("Could not find VHS_VideoCombine node in workflow!")
 
 def build_workflow(prompt: str, base_workflow=None):
@@ -121,34 +126,25 @@ def build_img2img_workflow(prompt: str, image_filename: str, base_workflow=None)
       workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
   return {"prompt": workflow}
 
-def build_img2vid_workflow(image_filename: str, motion_bucket_id: int = 127, fps: int = 8, base_workflow=None):
-  """Build the image-to-video workflow."""
+def build_img2vid_workflow(image_filename: str, base_workflow=None):
+  """Build the image-to-video workflow for WAN i2v."""
   if base_workflow is None:
     base_workflow = load_workflow(IMG2VID_WORKFLOW_PATH)
   workflow = copy.deepcopy(base_workflow)
   # Find and update LoadImage node
   image_load_node_id = find_image_load_node(workflow)
   workflow[image_load_node_id]["inputs"]["image"] = image_filename
-  # Find and update SVD conditioning node
+  # Find and update Seed (rgthree) node for randomization
   try:
-    svd_node_id = find_svd_conditioning_node(workflow)
-    workflow[svd_node_id]["inputs"]["motion_bucket_id"] = motion_bucket_id
-    workflow[svd_node_id]["inputs"]["fps"] = fps
+    seed_node_id = find_seed_node(workflow)
+    workflow[seed_node_id]["inputs"]["seed"] = int(time.time() * 1000) % 999999999999999
   except ValueError:
-    print("⚠️ SVD_img2vid_Conditioning node not found, using defaults")
-  # Find and update KSampler seed dynamically
-  try:
-    ksampler_node_id = find_ksampler_node(workflow)
-    workflow[ksampler_node_id]["inputs"]["seed"] = int(time.time()) % 999999999
-  except ValueError:
-    if "4" in workflow:
-      workflow["4"]["inputs"]["seed"] = int(time.time()) % 999999999
-  # Update video combine fps if present
-  try:
-    video_combine_node_id = find_video_combine_node(workflow)
-    workflow[video_combine_node_id]["inputs"]["frame_rate"] = fps
-  except ValueError:
-    print("⚠️ VHS_VideoCombine node not found, using defaults")
+    # Fallback: try KSampler if Seed node not found
+    try:
+      ksampler_node_id = find_ksampler_node(workflow)
+      workflow[ksampler_node_id]["inputs"]["seed"] = int(time.time()) % 999999999
+    except ValueError:
+      print("⚠️ No seed node found, using workflow defaults")
   return {"prompt": workflow}
 
 @app.post("/dream")
@@ -247,7 +243,7 @@ async def receive_img2img(req: Img2ImgRequest):
 
 @app.post("/img2vid")
 async def receive_img2vid(req: Img2VidRequest):
-  print(f"🎬 img2vid request received (motion={req.motion_bucket_id}, fps={req.fps})")
+  print("🎬 img2vid request received")
   try:
     image_data = base64.b64decode(req.image_data)
   except Exception as e:
@@ -268,7 +264,7 @@ async def receive_img2vid(req: Img2VidRequest):
     return {"status": "error", "message": f"Error uploading image to ComfyUI: {e}"}
   base_workflow = load_workflow(IMG2VID_WORKFLOW_PATH)
   try:
-    payload = build_img2vid_workflow(image_filename, req.motion_bucket_id, req.fps, base_workflow)
+    payload = build_img2vid_workflow(image_filename, base_workflow)
   except Exception as e:
     print(f"💥 Error building workflow: {e}")
     return {"status": "error", "message": f"Error building workflow: {e}"}
