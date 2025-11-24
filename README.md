@@ -380,6 +380,8 @@ These settings apply to the machine running the API server (GPU machine):
 - **`DEFAULT_WORKFLOW_PATH`** - Path to the text2img workflow JSON file
 - **`IMG2IMG_WORKFLOW_PATH`** - Path to the img2img workflow JSON file
 
+**Note:** The positive prompt node is automatically detected from your workflow. The system looks for `CLIPTextEncode` nodes and prioritizes those with "positive" in their title.
+
 ### Telegram Bot Settings (`.env`)
 
 These settings apply to the machine running the Telegram bot:
@@ -432,6 +434,11 @@ When using separate machines:
 #### "Could not find node 16 for positive prompt"
 - ✅ Your workflow file might have a different node ID
 - ✅ Update `POSITIVE_PROMPT_NODE_ID` in `api_server.py` to match your workflow
+
+### "No CLIPTextEncode nodes found in workflow"
+- ✅ Your workflow file must have at least one `CLIPTextEncode` node for text prompts
+- ✅ Verify the workflow JSON file is properly exported from ComfyUI in API format
+- ✅ Check that the workflow contains nodes with `"class_type": "CLIPTextEncode"`
 
 ### Two-Machine Setup Issues
 
