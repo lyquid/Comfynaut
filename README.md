@@ -293,6 +293,6 @@ Having trouble? Found a bug? Have a feature request?
 
 *May your prompts be creative and your GPUs be cool!* 🧙‍♂️⚓
 
-[⬆ Back to Top](#-comfynaut)
+[⬆ Back to Top](#comfynaut)
 
 </div>
