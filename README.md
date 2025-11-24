@@ -344,6 +344,8 @@ Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory.
 - `text2img_LORA.json` - For text-to-image generation
 - `img2img_LORA.json` - For image-to-image transformation
 
+> ⚠️ **Important**: The workflow files contain references to specific model files (e.g., `oneObsession_1424DNsfw.safetensors` and `22-nsfw-HIGH-e6.safetensors`). You will need to update these to match the models installed in your ComfyUI setup. Edit the workflow JSON files and replace the `ckpt_name` and `lora_name` values with your available models.
+
 ### Using Custom Workflows
 
 1. Export your workflow from ComfyUI as API format JSON
