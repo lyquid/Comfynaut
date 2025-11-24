@@ -23,8 +23,10 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 
 - 🦜 **Telegram Integration** - Control everything from your favorite messaging app
 - 🎨 **ComfyUI Powered** - Leverage the full power of ComfyUI workflows
-- ⚡ **Fast & Asynchronous** - Queue-based processing for smooth sailing
-- 🔧 **Customizable Workflows** - Support for custom ComfyUI workflow JSON files
+- ⚡ **Fast & Asynchronous** - Async HTTP requests with httpx for smooth sailing
+- 🔧 **Dynamic Workflow Selection** - Choose from multiple workflows via inline menu
+- 🧙 **Smart Node Detection** - Automatically finds positive prompt and image load nodes
+- 🎲 **Random Seed Generation** - Each request generates unique variations
 - 🎯 **Quality Prompts** - Automatically enhances prompts with quality keywords
 - 🖼️ **img2img Support** - Transform existing images with text prompts
 - 🌊 **RESTful API** - FastAPI-based server for flexibility
@@ -103,15 +105,16 @@ Before you embark on this magical journey, ensure you have:
 #### 1️⃣ Install Dependencies
 
 ```bash
-pip install python-telegram-bot python-dotenv fastapi uvicorn requests
+pip install python-telegram-bot python-dotenv fastapi uvicorn httpx
 ```
 
-Or create a `requirements.txt`:
+Or use the provided `requirements.txt`:
 ```txt
 python-telegram-bot>=20.0
 python-dotenv>=1.0.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
+httpx>=0.24.0
 requests>=2.31.0
 ```
 
@@ -220,6 +223,12 @@ Once your bot is running, open Telegram and:
 /start
 ```
 Response: *"Arrr, Captain! Comfynaut is ready to ferry your prompt wishes to the stars! 🦜🪐"*
+
+#### `/workflows` - Choose your workflow style 🧙‍♂️
+```
+/workflows
+```
+Displays an interactive menu of all available workflows from your `workflows/` directory. Select one to use for all subsequent `/dream` commands.
 
 #### `/dream` - Generate an image from text 🎨
 ```
@@ -334,9 +343,11 @@ Internet ◀──────────▶ Ubuntu Server ◀─────�
 - **`main.py`** 🚀 - Entry point (currently a simple launcher)
 
 - **`workflows/`** 📁 - ComfyUI workflow JSON files
+  - Dynamically loaded at runtime - add any `.json` workflow here
   - `text2img_LORA.json` - Default text-to-image workflow with LoRA support
-  - `img2img_LORA.json` - Image-to-image workflow for transforming existing images
+  - `img2img - CyberRealistic Pony.json` - Image-to-image workflow for transforming existing images
   - `default.json` - Basic workflow template
+  - Users can select workflows via `/workflows` command in Telegram
 
 ## 🎯 Workflow Customization
 
@@ -349,13 +360,18 @@ Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory.
 ### Using Custom Workflows
 
 1. Export your workflow from ComfyUI as API format JSON
-2. Save it to the `workflows/` directory
-3. Update the appropriate path in `api_server.py`:
-   - `DEFAULT_WORKFLOW_PATH` for text-to-image
-   - `IMG2IMG_WORKFLOW_PATH` for image-to-image
-4. Make sure your workflow has:
-   - A text input node (default is node ID "16" for positive prompt)
-   - For img2img: An image load node (default is node ID "59")
+2. Save it to the `workflows/` directory with a descriptive name (e.g., `my_custom_style.json`)
+3. Restart the Telegram bot to load the new workflow
+4. Use `/workflows` command in Telegram to select your new workflow
+5. Make sure your workflow has:
+   - At least one `CLIPTextEncode` node (preferably with "positive" in the title)
+   - For img2img: A `LoadImage` node for the input image
+   - A `KSampler` node for seed randomization
+
+**Note:** The system automatically detects:
+- Positive prompt nodes (looks for `CLIPTextEncode` with "positive" in title)
+- Image load nodes (looks for `LoadImage` class type)
+- KSampler nodes (for dynamic seed generation)
 
 ### Prompt Enhancement
 
@@ -374,13 +390,15 @@ These settings apply to the machine running the API server (GPU machine):
 
 - **`COMFYUI_API`** - ComfyUI API endpoint (default: `http://127.0.0.1:8188`)
   - This should always point to localhost since ComfyUI runs on the same machine
-- **`POSITIVE_PROMPT_NODE_ID`** - Node ID for positive prompt injection (default: `"16"`)
-- **`IMAGE_LOAD_NODE_ID`** - Node ID for loading input images in img2img (default: `"59"`)
 - **`PROMPT_HELPERS`** - Quality keywords appended to prompts
 - **`DEFAULT_WORKFLOW_PATH`** - Path to the text2img workflow JSON file
 - **`IMG2IMG_WORKFLOW_PATH`** - Path to the img2img workflow JSON file
+- **`WORKFLOWS_DIR`** - Directory containing all workflow files (default: `workflows/`)
 
-**Note:** The positive prompt node is automatically detected from your workflow. The system looks for `CLIPTextEncode` nodes and prioritizes those with "positive" in their title.
+**Note:** Node detection is fully automatic:
+- **Positive prompt nodes** are detected by finding `CLIPTextEncode` nodes, prioritizing those with "positive" in the title
+- **Image load nodes** are detected by finding `LoadImage` class types
+- **KSampler nodes** are detected for dynamic seed generation on each request
 
 ### Telegram Bot Settings (`.env`)
 

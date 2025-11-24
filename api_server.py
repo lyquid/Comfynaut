@@ -1,6 +1,5 @@
 # 🏰 api_server.py - Comfynaut Pirate-Ninja Portal
-# Now with ComfyUI /history support! Sails both /queue and /history to retrieve the finest plunder.
-# If your image is conjured but lost to time in the queue... we'll fetch it from history, like a true spellcaster!
+# Refactored by Gandalf the Pirate-Ninja, Slayer of NodeID Monsters!
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -16,10 +15,8 @@ app = FastAPI()
 
 WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
 DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "text2img_LORA.json")
-IMG2IMG_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "img2img_LORA.json")
+IMG2IMG_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "img2img - CyberRealistic Pony.json")
 COMFYUI_API = "http://127.0.0.1:8188"
-POSITIVE_PROMPT_NODE_ID = "16"  # Node ID for positive prompt in default workflow
-IMAGE_LOAD_NODE_ID = "59"  # Node ID for loading input image in img2img workflow
 PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 
 class DreamRequest(BaseModel):
@@ -35,73 +32,68 @@ def load_workflow(path=DEFAULT_WORKFLOW_PATH):
     return json.load(f)
 
 def find_positive_prompt_node(workflow):
-  """
-  Dynamically find the positive prompt node in a ComfyUI workflow.
-  
-  Strategy:
-  1. Look for CLIPTextEncode nodes with "positive" in the title (case-insensitive)
-  2. If not found, use the first CLIPTextEncode node
-  3. Raise an error if no suitable node is found
-  
-  Returns the node ID as a string.
-  """
+  """Find the 'Positive Prompt' CLIPTextEncode node dynamically."""
   clip_text_encode_nodes = []
-  
   for node_id, node_data in workflow.items():
     if isinstance(node_data, dict) and node_data.get("class_type") == "CLIPTextEncode":
       title = node_data.get("_meta", {}).get("title", "").lower()
       clip_text_encode_nodes.append((node_id, title))
-  
   if not clip_text_encode_nodes:
     raise ValueError("No CLIPTextEncode nodes found in workflow!")
-  
-  # First, try to find a node with "positive" in the title
   for node_id, title in clip_text_encode_nodes:
     if "positive" in title:
       return node_id
-  
-  # If no explicit positive prompt found, use the first CLIPTextEncode node
   return clip_text_encode_nodes[0][0]
+
+def find_image_load_node(workflow):
+  """Find the node for loading the input image (usually `LoadImage`)."""
+  for node_id, node_data in workflow.items():
+    if node_data.get("class_type") == "LoadImage":
+      return node_id
+  raise ValueError("Could not find LoadImage node in workflow!")
+
+def find_ksampler_node(workflow):
+  """Find the KSampler node dynamically."""
+  for node_id, node_data in workflow.items():
+    if node_data.get("class_type") == "KSampler":
+      return node_id
+  raise ValueError("Could not find KSampler node in workflow!")
 
 def build_workflow(prompt: str, base_workflow=None):
   if base_workflow is None:
     base_workflow = load_workflow()
   workflow = copy.deepcopy(base_workflow)
-  
   # Dynamically find the positive prompt node
   positive_prompt_node_id = find_positive_prompt_node(workflow)
-  
-  if positive_prompt_node_id in workflow:
-    workflow[positive_prompt_node_id]["inputs"]["text"] = prompt + PROMPT_HELPERS
-  else:
-    raise ValueError(f"Could not find node {positive_prompt_node_id} for positive prompt in workflow!")
-  
-  if "3" in workflow:
-    workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
+  workflow[positive_prompt_node_id]["inputs"]["text"] = prompt + PROMPT_HELPERS
+  # Find and update KSampler seed dynamically
+  try:
+    ksampler_node_id = find_ksampler_node(workflow)
+    workflow[ksampler_node_id]["inputs"]["seed"] = int(time.time()) % 999999999
+  except ValueError:
+    # Fallback to node "3" if KSampler not found
+    if "3" in workflow:
+      workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
   return {"prompt": workflow}
 
 def build_img2img_workflow(prompt: str, image_filename: str, base_workflow=None):
-  """Build an img2img workflow with image input and text prompt."""
   if base_workflow is None:
     base_workflow = load_workflow(IMG2IMG_WORKFLOW_PATH)
   workflow = copy.deepcopy(base_workflow)
-  
-  # Set the positive prompt
-  if POSITIVE_PROMPT_NODE_ID in workflow:
-    workflow[POSITIVE_PROMPT_NODE_ID]["inputs"]["text"] = prompt + PROMPT_HELPERS
-  else:
-    raise ValueError("Could not find node " + POSITIVE_PROMPT_NODE_ID + " for positive prompt in workflow!")
-  
-  # Set the input image
-  if IMAGE_LOAD_NODE_ID in workflow:
-    workflow[IMAGE_LOAD_NODE_ID]["inputs"]["image"] = image_filename
-  else:
-    raise ValueError("Could not find node " + IMAGE_LOAD_NODE_ID + " for image loading in workflow!")
-  
-  # Set random seed
-  if "3" in workflow:
-    workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
-  
+  # Find positive prompt node dynamically!
+  positive_prompt_node_id = find_positive_prompt_node(workflow)
+  workflow[positive_prompt_node_id]["inputs"]["text"] = prompt + PROMPT_HELPERS
+  # Find image load node dynamically!
+  image_load_node_id = find_image_load_node(workflow)
+  workflow[image_load_node_id]["inputs"]["image"] = image_filename
+  # Find and update KSampler seed dynamically
+  try:
+    ksampler_node_id = find_ksampler_node(workflow)
+    workflow[ksampler_node_id]["inputs"]["seed"] = int(time.time()) % 999999999
+  except ValueError:
+    # Fallback to node "3" if KSampler not found
+    if "3" in workflow:
+      workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
   return {"prompt": workflow}
 
 @app.post("/dream")
@@ -130,9 +122,7 @@ async def receive_dream(req: DreamRequest):
   except Exception as e:
     print(f"💥 Error reaching ComfyUI: {e}")
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
-
   image_url = wait_for_image_generation(prompt_id)
-
   if image_url:
     return {
       "status": "success",
@@ -149,20 +139,13 @@ async def receive_dream(req: DreamRequest):
 
 @app.post("/img2img")
 async def receive_img2img(req: Img2ImgRequest):
-  """Handle img2img requests with an input image and text prompt."""
   print(f"🎨 img2img request received with prompt: '{req.prompt}'")
-  
-  # Decode base64 image
   try:
     image_data = base64.b64decode(req.image_data)
   except Exception as e:
     print(f"💥 Error decoding image: {e}")
     return {"status": "error", "message": f"Error decoding image: {e}", "echo": req.prompt}
-  
-  # Generate a unique filename for the uploaded image
   image_filename = f"input_img2img_{uuid.uuid4().hex}.png"
-  
-  # Upload image to ComfyUI
   try:
     files = {
       'image': (image_filename, image_data, 'image/png'),
@@ -175,12 +158,12 @@ async def receive_img2img(req: Img2ImgRequest):
   except Exception as e:
     print(f"💥 Error uploading image to ComfyUI: {e}")
     return {"status": "error", "message": f"Error uploading image to ComfyUI: {e}", "echo": req.prompt}
-  
-  # Build the img2img workflow
   base_workflow = load_workflow(IMG2IMG_WORKFLOW_PATH)
-  payload = build_img2img_workflow(req.prompt, image_filename, base_workflow)
-  
-  # Submit the workflow to ComfyUI
+  try:
+    payload = build_img2img_workflow(req.prompt, image_filename, base_workflow)
+  except Exception as e:
+    print(f"💥 Error building workflow: {e}")
+    return {"status": "error", "message": f"Error building workflow: {e}", "echo": req.prompt}
   try:
     resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)
     resp.raise_for_status()
@@ -192,10 +175,7 @@ async def receive_img2img(req: Img2ImgRequest):
   except Exception as e:
     print(f"💥 Error reaching ComfyUI: {e}")
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
-
-  # Wait for the image to be generated
   image_url = wait_for_image_generation(prompt_id)
-
   if image_url:
     return {
       "status": "success",
@@ -215,11 +195,8 @@ async def root():
   return {"message": "Welcome to Comfynaut GPU Wizardry Portal, now speaking true ComfyUI 'prompt' dialect!"}
 
 def wait_for_image_generation(prompt_id: str):
-  """Common function to wait for image generation and retrieve the image URL."""
   image_url = None
-
-  # First, check /queue for prompt_id and outputs
-  for i in range(15):  # Up to 30 seconds in the queue
+  for i in range(15):
     try:
       queue_resp = requests.get(f"{COMFYUI_API}/queue")
       if queue_resp.status_code == 200:
@@ -249,8 +226,6 @@ def wait_for_image_generation(prompt_id: str):
     except Exception as e:
       print("Polling queue error:", e)
     time.sleep(2)
-
-  # If not in the queue, search for buried treasure in /history
   if not image_url:
     print("🧐 Searched /queue in vain... Seeking lost treasure in /history.")
     try:
@@ -272,7 +247,6 @@ def wait_for_image_generation(prompt_id: str):
         print(f"🛑 Could not fetch /history/{prompt_id}, status {hist_resp.status_code}")
     except Exception as e:
       print("Polling history error:", e)
-
   return image_url
 
 if __name__ == "__main__":
