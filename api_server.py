@@ -15,8 +15,8 @@ app = FastAPI()
 
 WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
 DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "text2img_LORA.json")
-IMG2IMG_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "img2img - CyberRealistic Pony.json")
-IMG2VID_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "img2vid.json")
+IMG2IMG_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "i2i - CyberRealistic Pony.json")
+IMG2VID_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "i2v - WAN 2.2 Smooth Workflow v2.0.json")
 COMFYUI_API = "http://127.0.0.1:8188"
 PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 

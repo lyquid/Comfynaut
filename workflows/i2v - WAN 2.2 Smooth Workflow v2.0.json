@@ -98,7 +98,7 @@
   },
   "52": {
     "inputs": {
-      "image": "example.png"
+      "image": "60528420.jpg"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -318,7 +318,7 @@
     "inputs": {
       "frame_rate": 32,
       "loop_count": 0,
-      "filename_prefix": "Video/comfynaut_vid",
+      "filename_prefix": "Video/2025-11-24/231635",
       "format": "video/h264-mp4",
       "pix_fmt": "yuv420p",
       "crf": 15,
@@ -378,7 +378,7 @@
   },
   "81": {
     "inputs": {
-      "filename_prefix": "Video/comfynaut_vid_LASTFRAME",
+      "filename_prefix": "Video/2025-11-24/231635LASTFRAME",
       "images": [
         "79",
         0
@@ -391,7 +391,7 @@
   },
   "82": {
     "inputs": {
-      "seed": 369923193621474
+      "seed": -1
     },
     "class_type": "Seed (rgthree)",
     "_meta": {
@@ -483,7 +483,7 @@
   },
   "108": {
     "inputs": {
-      "clip_name": "clip_vision_h.safetensors"
+      "clip_name": "sigclip_vision_patch14_384.safetensors"
     },
     "class_type": "CLIPVisionLoader",
     "_meta": {
@@ -494,6 +494,21 @@
     "inputs": {
       "PowerLoraLoaderHeaderWidget": {
         "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "jfj-deepthroat-W22-I2V-HN.safetensors",
+        "strength": 1
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "WAN-2.2-I2V-POV-Titfuck-Paizuri-HIGH-v1.0.safetensors",
+        "strength": 1
       },
       "➕ Add Lora": "",
       "model": [
@@ -510,6 +525,21 @@
     "inputs": {
       "PowerLoraLoaderHeaderWidget": {
         "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "jfj-deepthroat-W22-I2V-LN.safetensors",
+        "strength": 1
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "WAN-2.2-I2V-POV-Titfuck-Paizuri-LOW-v1.0.safetensors",
+        "strength": 1
       },
       "➕ Add Lora": "",
       "model": [
