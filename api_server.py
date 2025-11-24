@@ -2,9 +2,8 @@
 # Now with ComfyUI /history support! Sails both /queue and /history to retrieve the finest plunder.
 # If your image is conjured but lost to time in the queue... we'll fetch it from history, like a true spellcaster!
 
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional
 import requests
 import os
 import json
