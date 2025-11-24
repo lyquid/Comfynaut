@@ -16,8 +16,14 @@ app = FastAPI()
 WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
 DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "text2img_LORA.json")
 IMG2IMG_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "img2img - CyberRealistic Pony.json")
+IMG2VID_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "img2vid.json")
 COMFYUI_API = "http://127.0.0.1:8188"
 PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
+
+# Video generation timeout settings (videos can take 10+ minutes)
+VIDEO_POLL_INTERVAL = 10  # seconds between polling
+VIDEO_MAX_POLL_ATTEMPTS = 90  # 90 * 10 seconds = 15 minutes max wait
+VIDEO_PROGRESS_LOG_INTERVAL = 60  # Log progress every 60 seconds
 
 class DreamRequest(BaseModel):
   prompt: str
@@ -25,6 +31,9 @@ class DreamRequest(BaseModel):
 
 class Img2ImgRequest(BaseModel):
   prompt: str
+  image_data: str  # Base64 encoded image
+
+class Img2VidRequest(BaseModel):
   image_data: str  # Base64 encoded image
 
 def load_workflow(path=DEFAULT_WORKFLOW_PATH):
@@ -58,6 +67,27 @@ def find_ksampler_node(workflow):
     if node_data.get("class_type") == "KSampler":
       return node_id
   raise ValueError("Could not find KSampler node in workflow!")
+
+def find_seed_node(workflow):
+  """Find the Seed (rgthree) node for video generation workflows."""
+  for node_id, node_data in workflow.items():
+    if node_data.get("class_type") == "Seed (rgthree)":
+      return node_id
+  raise ValueError("Could not find Seed (rgthree) node in workflow!")
+
+def find_video_combine_node(workflow, require_save_output=False):
+  """Find the VHS_VideoCombine node for video output.
+  
+  If require_save_output is True, only return nodes with save_output=True.
+  """
+  for node_id, node_data in workflow.items():
+    if node_data.get("class_type") == "VHS_VideoCombine":
+      if require_save_output:
+        if node_data.get("inputs", {}).get("save_output", False):
+          return node_id
+      else:
+        return node_id
+  raise ValueError("Could not find VHS_VideoCombine node in workflow!")
 
 def build_workflow(prompt: str, base_workflow=None):
   if base_workflow is None:
@@ -94,6 +124,27 @@ def build_img2img_workflow(prompt: str, image_filename: str, base_workflow=None)
     # Fallback to node "3" if KSampler not found
     if "3" in workflow:
       workflow["3"]["inputs"]["seed"] = int(time.time()) % 999999999
+  return {"prompt": workflow}
+
+def build_img2vid_workflow(image_filename: str, base_workflow=None):
+  """Build the image-to-video workflow for WAN i2v."""
+  if base_workflow is None:
+    base_workflow = load_workflow(IMG2VID_WORKFLOW_PATH)
+  workflow = copy.deepcopy(base_workflow)
+  # Find and update LoadImage node
+  image_load_node_id = find_image_load_node(workflow)
+  workflow[image_load_node_id]["inputs"]["image"] = image_filename
+  # Find and update Seed (rgthree) node for randomization
+  try:
+    seed_node_id = find_seed_node(workflow)
+    workflow[seed_node_id]["inputs"]["seed"] = int(time.time() * 1000) % 999999999999999
+  except ValueError:
+    # Fallback: try KSampler if Seed node not found
+    try:
+      ksampler_node_id = find_ksampler_node(workflow)
+      workflow[ksampler_node_id]["inputs"]["seed"] = int(time.time()) % 999999999
+    except ValueError:
+      print("⚠️ No seed node found, using workflow defaults")
   return {"prompt": workflow}
 
 @app.post("/dream")
@@ -190,6 +241,58 @@ async def receive_img2img(req: Img2ImgRequest):
       "message": "Arrr, no image from ComfyUI—checked the queue and the mists of history. Only goblins. Try again?"
     }
 
+@app.post("/img2vid")
+async def receive_img2vid(req: Img2VidRequest):
+  print("🎬 img2vid request received")
+  try:
+    image_data = base64.b64decode(req.image_data)
+  except Exception as e:
+    print(f"💥 Error decoding image: {e}")
+    return {"status": "error", "message": f"Error decoding image: {e}"}
+  image_filename = f"input_img2vid_{uuid.uuid4().hex}.png"
+  try:
+    files = {
+      'image': (image_filename, image_data, 'image/png'),
+      'overwrite': (None, 'true')
+    }
+    upload_resp = requests.post(f"{COMFYUI_API}/upload/image", files=files, timeout=30)
+    upload_resp.raise_for_status()
+    upload_result = upload_resp.json()
+    print(f"📤 Image uploaded to ComfyUI: {upload_result}")
+  except Exception as e:
+    print(f"💥 Error uploading image to ComfyUI: {e}")
+    return {"status": "error", "message": f"Error uploading image to ComfyUI: {e}"}
+  base_workflow = load_workflow(IMG2VID_WORKFLOW_PATH)
+  try:
+    payload = build_img2vid_workflow(image_filename, base_workflow)
+  except Exception as e:
+    print(f"💥 Error building workflow: {e}")
+    return {"status": "error", "message": f"Error building workflow: {e}"}
+  try:
+    resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)
+    resp.raise_for_status()
+    result = resp.json()
+    prompt_id = result.get("prompt_id")
+    if not prompt_id:
+      print("⚠️ No prompt_id from ComfyUI!")
+      return {"status": "error", "message": "No prompt_id from ComfyUI!"}
+  except Exception as e:
+    print(f"💥 Error reaching ComfyUI: {e}")
+    return {"status": "error", "message": f"Error reaching ComfyUI: {e}"}
+  # Wait for video generation with extended timeout
+  video_url = wait_for_video_generation(prompt_id)
+  if video_url:
+    return {
+      "status": "success",
+      "video_url": video_url,
+      "message": "🎬 Video conjured! Your moving masterpiece awaits at the video URL."
+    }
+  else:
+    return {
+      "status": "error",
+      "message": "Arrr, no video from ComfyUI—the animation eluded us. Try again, brave wizard?"
+    }
+
 @app.get("/")
 async def root():
   return {"message": "Welcome to Comfynaut GPU Wizardry Portal, now speaking true ComfyUI 'prompt' dialect!"}
@@ -248,6 +351,73 @@ def wait_for_image_generation(prompt_id: str):
     except Exception as e:
       print("Polling history error:", e)
   return image_url
+
+def wait_for_video_generation(prompt_id: str):
+  """Wait for video generation with extended timeout (up to 15 minutes).
+  
+  Videos take much longer to generate than images, so we poll less frequently
+  but for a longer total duration.
+  """
+  video_url = None
+  print(f"⏳ Waiting for video generation (polling every {VIDEO_POLL_INTERVAL}s for up to {VIDEO_MAX_POLL_ATTEMPTS * VIDEO_POLL_INTERVAL // 60} minutes)...")
+  
+  for i in range(VIDEO_MAX_POLL_ATTEMPTS):
+    elapsed = i * VIDEO_POLL_INTERVAL
+    progress_log_polls = VIDEO_PROGRESS_LOG_INTERVAL // VIDEO_POLL_INTERVAL
+    if i % progress_log_polls == 0:  # Log progress every VIDEO_PROGRESS_LOG_INTERVAL seconds
+      print(f"🎬 Video generation in progress... ({elapsed}s elapsed)")
+    try:
+      queue_resp = requests.get(f"{COMFYUI_API}/queue")
+      if queue_resp.status_code == 200:
+        queue_data = queue_resp.json()
+        queue_items = []
+        if isinstance(queue_data, list):
+          queue_items = queue_data
+        elif isinstance(queue_data, dict):
+          queue_items = queue_data.get("queue_running", []) + queue_data.get("queue_done", [])
+        for item in queue_items:
+          if (
+            isinstance(item, dict)
+            and item.get("prompt_id") == prompt_id
+            and "outputs" in item
+          ):
+            outputs = item["outputs"]
+            if outputs:
+              for node_output in outputs.values():
+                # Check for video output (gifs array from VHS_VideoCombine)
+                gifs = node_output.get("gifs", [])
+                if gifs:
+                  vidinfo = gifs[0]
+                  video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
+                  print(f"🎬 Found video in /queue at {elapsed}s: {video_url}")
+                  return video_url
+    except Exception as e:
+      print(f"Polling queue error at {elapsed}s:", e)
+    time.sleep(VIDEO_POLL_INTERVAL)
+  
+  # If not found in queue, check history
+  print("🧐 Searched /queue in vain... Seeking video treasure in /history.")
+  try:
+    hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
+    if hist_resp.status_code == 200:
+      hist_json = hist_resp.json()
+      data = hist_json.get(prompt_id)
+      if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
+        for node_output in data["outputs"].values():
+          # Check for video output
+          gifs = node_output.get("gifs", [])
+          if gifs:
+            vidinfo = gifs[0]
+            video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
+            print(f"🏆 Found video in /history: {video_url}")
+            return video_url
+      else:
+        print("ℹ️ No finished outputs found in history for this prompt_id.")
+    else:
+      print(f"🛑 Could not fetch /history/{prompt_id}, status {hist_resp.status_code}")
+  except Exception as e:
+    print("Polling history error:", e)
+  return video_url
 
 if __name__ == "__main__":
   import uvicorn
