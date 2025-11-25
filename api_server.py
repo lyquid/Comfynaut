@@ -12,6 +12,10 @@ import base64
 import uuid
 import logging
 import websocket
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI()
 
@@ -26,7 +30,13 @@ WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
 DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "text2img_LORA.json")
 IMG2IMG_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "i2i - CyberRealistic Pony.json")
 IMG2VID_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "i2v - WAN 2.2 Smooth Workflow v2.0.json")
-COMFYUI_API = "http://127.0.0.1:8188"
+
+# ComfyUI connection settings - configurable for remote connections
+# Default to localhost for single-machine setup, or set COMFYUI_HOST for remote ComfyUI
+COMFYUI_HOST = os.getenv("COMFYUI_HOST", "127.0.0.1:8188")
+COMFYUI_API = f"http://{COMFYUI_HOST}"
+COMFYUI_WS_URL = f"ws://{COMFYUI_HOST}/ws"
+
 PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 
 # WebSocket settings for real-time communication with ComfyUI
@@ -35,7 +45,6 @@ WS_CONNECT_TIMEOUT = 10  # WebSocket connection timeout in seconds
 WS_RECV_TIMEOUT = 5  # WebSocket receive timeout per message
 WS_IMAGE_TIMEOUT = 60  # Total timeout for image generation
 WS_VIDEO_TIMEOUT = 900  # Total timeout for video generation (15 min)
-COMFYUI_WS_URL = "ws://127.0.0.1:8188/ws"
 
 class DreamRequest(BaseModel):
   prompt: str
@@ -478,5 +487,7 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None):
 
 if __name__ == "__main__":
   import uvicorn
-  logger.info("Portals open on http://localhost:8000/")
+  logger.info("🏰 Comfynaut API Server starting...")
+  logger.info("📡 ComfyUI connection: %s (WebSocket: %s)", COMFYUI_API, COMFYUI_WS_URL)
+  logger.info("🌐 API server listening on http://0.0.0.0:8000/")
   uvicorn.run("api_server:app", host="0.0.0.0", port=8000)
