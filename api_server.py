@@ -10,8 +10,16 @@ import time
 import copy
 import base64
 import uuid
+import logging
 
 app = FastAPI()
+
+# Logging setup
+logging.basicConfig(
+  format="%(asctime)s - %(levelname)s - %(message)s",
+  level=logging.INFO
+)
+logger = logging.getLogger("comfynaut.api")
 
 WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
 DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "text2img_LORA.json")
@@ -37,8 +45,22 @@ class Img2VidRequest(BaseModel):
   image_data: str  # Base64 encoded image
 
 def load_workflow(path=DEFAULT_WORKFLOW_PATH):
-  with open(path, "r") as f:
-    return json.load(f)
+  """Load a ComfyUI workflow JSON with robust decoding & logging."""
+  if not os.path.isfile(path):
+    raise FileNotFoundError(f"Workflow file not found: {path}")
+  encodings = ("utf-8", "utf-8-sig", "latin-1")
+  last_error = None
+  for enc in encodings:
+    try:
+      with open(path, "r", encoding=enc) as f:
+        return json.load(f)
+    except UnicodeDecodeError as e:
+      logger.warning("Unicode decode error using %s for %s: %s", enc, path, e)
+      last_error = e
+      continue
+    except json.JSONDecodeError as e:
+      raise ValueError(f"Invalid JSON in workflow file {path}: {e}") from e
+  raise UnicodeDecodeError("<multi>", b"", 0, 0, f"Failed to decode workflow file {path} with tried encodings: {encodings}. Last error: {last_error}")
 
 def find_positive_prompt_node(workflow):
   """Find the 'Positive Prompt' CLIPTextEncode node dynamically."""
@@ -149,17 +171,17 @@ def build_img2vid_workflow(image_filename: str, base_workflow=None):
 
 @app.post("/dream")
 async def receive_dream(req: DreamRequest):
-  print(f"✨ Prompt received: '{req.prompt}'")
+  logger.info("Prompt received: '%s'", req.prompt)
   workflow_path = DEFAULT_WORKFLOW_PATH
   if req.workflow:
     candidate_path = os.path.join(WORKFLOWS_DIR, req.workflow)
     if os.path.isfile(candidate_path):
       workflow_path = candidate_path
-      print(f"📄 Using workflow: {req.workflow}")
+      logger.info("Using workflow: %s", req.workflow)
     else:
-      print(f"⚠️ Workflow file not found: {candidate_path}, using default.")
+      logger.warning("Workflow file not found: %s, using default.", candidate_path)
   else:
-    print("ℹ️ No workflow specified, using default.")
+    logger.info("No workflow specified, using default.")
   base_workflow = load_workflow(workflow_path)
   payload = build_workflow(req.prompt, base_workflow)
   try:
@@ -168,10 +190,10 @@ async def receive_dream(req: DreamRequest):
     result = resp.json()
     prompt_id = result.get("prompt_id")
     if not prompt_id:
-      print("⚠️ No prompt_id from ComfyUI!")
+      logger.warning("No prompt_id from ComfyUI!")
       return {"status": "error", "message": "No prompt_id from ComfyUI!", "echo": req.prompt}
   except Exception as e:
-    print(f"💥 Error reaching ComfyUI: {e}")
+    logger.error("Error reaching ComfyUI: %s", e)
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
   image_url = wait_for_image_generation(prompt_id)
   if image_url:
@@ -190,11 +212,11 @@ async def receive_dream(req: DreamRequest):
 
 @app.post("/img2img")
 async def receive_img2img(req: Img2ImgRequest):
-  print(f"🎨 img2img request received with prompt: '{req.prompt}'")
+  logger.info("img2img request received with prompt: '%s'", req.prompt)
   try:
     image_data = base64.b64decode(req.image_data)
   except Exception as e:
-    print(f"💥 Error decoding image: {e}")
+    logger.error("Error decoding img2img image: %s", e)
     return {"status": "error", "message": f"Error decoding image: {e}", "echo": req.prompt}
   image_filename = f"input_img2img_{uuid.uuid4().hex}.png"
   try:
@@ -205,15 +227,15 @@ async def receive_img2img(req: Img2ImgRequest):
     upload_resp = requests.post(f"{COMFYUI_API}/upload/image", files=files, timeout=30)
     upload_resp.raise_for_status()
     upload_result = upload_resp.json()
-    print(f"📤 Image uploaded to ComfyUI: {upload_result}")
+    logger.info("Image uploaded to ComfyUI: %s", upload_result)
   except Exception as e:
-    print(f"💥 Error uploading image to ComfyUI: {e}")
+    logger.error("Error uploading img2img image to ComfyUI: %s", e)
     return {"status": "error", "message": f"Error uploading image to ComfyUI: {e}", "echo": req.prompt}
   base_workflow = load_workflow(IMG2IMG_WORKFLOW_PATH)
   try:
     payload = build_img2img_workflow(req.prompt, image_filename, base_workflow)
   except Exception as e:
-    print(f"💥 Error building workflow: {e}")
+    logger.error("Error building img2img workflow: %s", e)
     return {"status": "error", "message": f"Error building workflow: {e}", "echo": req.prompt}
   try:
     resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)
@@ -221,10 +243,10 @@ async def receive_img2img(req: Img2ImgRequest):
     result = resp.json()
     prompt_id = result.get("prompt_id")
     if not prompt_id:
-      print("⚠️ No prompt_id from ComfyUI!")
+      logger.warning("No prompt_id from ComfyUI for img2img!")
       return {"status": "error", "message": "No prompt_id from ComfyUI!", "echo": req.prompt}
   except Exception as e:
-    print(f"💥 Error reaching ComfyUI: {e}")
+    logger.error("Error reaching ComfyUI for img2img: %s", e)
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
   image_url = wait_for_image_generation(prompt_id)
   if image_url:
@@ -243,11 +265,11 @@ async def receive_img2img(req: Img2ImgRequest):
 
 @app.post("/img2vid")
 async def receive_img2vid(req: Img2VidRequest):
-  print("🎬 img2vid request received")
+  logger.info("img2vid request received")
   try:
     image_data = base64.b64decode(req.image_data)
   except Exception as e:
-    print(f"💥 Error decoding image: {e}")
+    logger.error("Error decoding img2vid image: %s", e)
     return {"status": "error", "message": f"Error decoding image: {e}"}
   image_filename = f"input_img2vid_{uuid.uuid4().hex}.png"
   try:
@@ -258,15 +280,15 @@ async def receive_img2vid(req: Img2VidRequest):
     upload_resp = requests.post(f"{COMFYUI_API}/upload/image", files=files, timeout=30)
     upload_resp.raise_for_status()
     upload_result = upload_resp.json()
-    print(f"📤 Image uploaded to ComfyUI: {upload_result}")
+    logger.info("Image uploaded for img2vid: %s", upload_result)
   except Exception as e:
-    print(f"💥 Error uploading image to ComfyUI: {e}")
+    logger.error("Error uploading img2vid image to ComfyUI: %s", e)
     return {"status": "error", "message": f"Error uploading image to ComfyUI: {e}"}
   base_workflow = load_workflow(IMG2VID_WORKFLOW_PATH)
   try:
     payload = build_img2vid_workflow(image_filename, base_workflow)
   except Exception as e:
-    print(f"💥 Error building workflow: {e}")
+    logger.error("Error building img2vid workflow: %s", e)
     return {"status": "error", "message": f"Error building workflow: {e}"}
   try:
     resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)
@@ -274,10 +296,10 @@ async def receive_img2vid(req: Img2VidRequest):
     result = resp.json()
     prompt_id = result.get("prompt_id")
     if not prompt_id:
-      print("⚠️ No prompt_id from ComfyUI!")
+      logger.warning("No prompt_id from ComfyUI for img2vid!")
       return {"status": "error", "message": "No prompt_id from ComfyUI!"}
   except Exception as e:
-    print(f"💥 Error reaching ComfyUI: {e}")
+    logger.error("Error reaching ComfyUI for img2vid: %s", e)
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}"}
   # Wait for video generation with extended timeout
   video_url = wait_for_video_generation(prompt_id)
@@ -322,15 +344,15 @@ def wait_for_image_generation(prompt_id: str):
                 if images:
                   imginfo = images[0]
                   image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
-                  print(f"🏴‍☠️ Found image in /queue at {2*i}s: {image_url}")
+                  logger.info("Found image in /queue at %ss: %s", 2*i, image_url)
                   break
           if image_url:
             break
     except Exception as e:
-      print("Polling queue error:", e)
+      logger.error("Polling queue error: %s", e)
     time.sleep(2)
   if not image_url:
-    print("🧐 Searched /queue in vain... Seeking lost treasure in /history.")
+    logger.info("Searched /queue in vain... seeking in /history.")
     try:
       hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
       if hist_resp.status_code == 200:
@@ -342,14 +364,14 @@ def wait_for_image_generation(prompt_id: str):
             if images:
               imginfo = images[0]
               image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
-              print(f"🏆 Found it in /history: {image_url}")
+              logger.info("Found image in /history: %s", image_url)
               break
         else:
-          print("ℹ️ No finished outputs found in history for this prompt_id.")
+          logger.info("No finished outputs found in history for this prompt_id.")
       else:
-        print(f"🛑 Could not fetch /history/{prompt_id}, status {hist_resp.status_code}")
+        logger.warning("Could not fetch /history/%s status %s", prompt_id, hist_resp.status_code)
     except Exception as e:
-      print("Polling history error:", e)
+      logger.error("Polling history error: %s", e)
   return image_url
 
 def wait_for_video_generation(prompt_id: str):
@@ -359,13 +381,13 @@ def wait_for_video_generation(prompt_id: str):
   but for a longer total duration.
   """
   video_url = None
-  print(f"⏳ Waiting for video generation (polling every {VIDEO_POLL_INTERVAL}s for up to {VIDEO_MAX_POLL_ATTEMPTS * VIDEO_POLL_INTERVAL // 60} minutes)...")
+  logger.info("Waiting for video generation (interval %ss, max %s polls)", VIDEO_POLL_INTERVAL, VIDEO_MAX_POLL_ATTEMPTS)
   
   for i in range(VIDEO_MAX_POLL_ATTEMPTS):
     elapsed = i * VIDEO_POLL_INTERVAL
     progress_log_polls = VIDEO_PROGRESS_LOG_INTERVAL // VIDEO_POLL_INTERVAL
     if i % progress_log_polls == 0:  # Log progress every VIDEO_PROGRESS_LOG_INTERVAL seconds
-      print(f"🎬 Video generation in progress... ({elapsed}s elapsed)")
+      logger.info("Video generation in progress (%ss elapsed)", elapsed)
     try:
       queue_resp = requests.get(f"{COMFYUI_API}/queue")
       if queue_resp.status_code == 200:
@@ -389,14 +411,14 @@ def wait_for_video_generation(prompt_id: str):
                 if gifs:
                   vidinfo = gifs[0]
                   video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
-                  print(f"🎬 Found video in /queue at {elapsed}s: {video_url}")
+                  logger.info("Found video in /queue at %ss: %s", elapsed, video_url)
                   return video_url
     except Exception as e:
-      print(f"Polling queue error at {elapsed}s:", e)
+      logger.error("Polling queue error at %ss: %s", elapsed, e)
     time.sleep(VIDEO_POLL_INTERVAL)
   
   # If not found in queue, check history
-  print("🧐 Searched /queue in vain... Seeking video treasure in /history.")
+  logger.info("Searched /queue in vain... seeking video in /history.")
   try:
     hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
     if hist_resp.status_code == 200:
@@ -409,17 +431,17 @@ def wait_for_video_generation(prompt_id: str):
           if gifs:
             vidinfo = gifs[0]
             video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
-            print(f"🏆 Found video in /history: {video_url}")
+            logger.info("Found video in /history: %s", video_url)
             return video_url
       else:
-        print("ℹ️ No finished outputs found in history for this prompt_id.")
+        logger.info("No finished video outputs found in history for this prompt_id.")
     else:
-      print(f"🛑 Could not fetch /history/{prompt_id}, status {hist_resp.status_code}")
+      logger.warning("Could not fetch /history/%s status %s (video)", prompt_id, hist_resp.status_code)
   except Exception as e:
-    print("Polling history error:", e)
+    logger.error("Polling history error (video): %s", e)
   return video_url
 
 if __name__ == "__main__":
   import uvicorn
-  print("🧙‍♂️ Portals open on http://localhost:8000/")
+  logger.info("Portals open on http://localhost:8000/")
   uvicorn.run("api_server:app", host="0.0.0.0", port=8000)
