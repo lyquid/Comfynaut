@@ -54,9 +54,8 @@ cp .env.example .env
 # Edit .env with your Telegram token
 # Keep defaults for COMFYUI_HOST and COMFY_API_HOST
 
-# 4. Launch the Comfynaut crew!
-python api_server.py  # In one terminal
-python telegram_bot.py  # In another terminal
+# 4. Launch Comfynaut (runs both bot and API server)
+python main.py
 ```
 
 ### Two Machine Setup (Recommended)
@@ -83,9 +82,38 @@ cp .env.example .env
 #   TELEGRAM_TOKEN=your_bot_token
 #   COMFYUI_HOST=192.168.1.100:8188  # IP:port of your GPU machine's ComfyUI
 
-# 3. Launch both services
-python api_server.py  # Connects remotely to ComfyUI
-python telegram_bot.py  # Talks to local api_server
+# 3. Launch Comfynaut (runs both bot and API server)
+python main.py
+```
+
+### Running as a Systemd Service
+
+Create `/etc/systemd/system/comfynaut.service`:
+```ini
+[Unit]
+Description=Comfynaut - Telegram Bot for ComfyUI
+After=network.target
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/Comfynaut
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable comfynaut
+sudo systemctl start comfynaut
+sudo systemctl status comfynaut  # Check status
+sudo journalctl -u comfynaut -f  # View logs
 ```
 
 ## 🛠️ Setup
@@ -357,6 +385,11 @@ Internet ◀──────────▶ Ubuntu Server ◀─────�
 
 ### Components
 
+- **`main.py`** 🚀 - Unified entry point that launches everything
+  - Starts both the API server and Telegram bot in parallel
+  - Perfect for running as a systemd service
+  - Use `python main.py` to launch Comfynaut
+
 - **`telegram_bot.py`** 🦜 - The Telegram interface, your friendly parrot
   - Runs on the **Ubuntu server** (or any internet-facing machine)
   - Receives commands from Telegram users
@@ -366,8 +399,6 @@ Internet ◀──────────▶ Ubuntu Server ◀─────�
   - Runs on the **Ubuntu server** (same machine as the bot)
   - Connects to ComfyUI remotely via HTTP and WebSocket
   - Uses `COMFYUI_HOST` env var to locate ComfyUI
-  
-- **`main.py`** 🚀 - Entry point (currently a simple launcher)
 
 - **`workflows/`** 📁 - ComfyUI workflow JSON files
   - Dynamically loaded at runtime - add any `.json` workflow here
