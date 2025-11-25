@@ -16,3 +16,6 @@ uvicorn>=0.24.0
 # HTTP Requests
 requests>=2.31.0
 httpx>=0.25.0
+
+# WebSocket Client (for real-time ComfyUI communication)
+websocket-client>=1.8.0
