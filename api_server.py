@@ -31,8 +31,10 @@ PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 
 # WebSocket settings for real-time communication with ComfyUI
 # WebSocket is more efficient than polling - no wasted HTTP requests
-WS_TIMEOUT = 30  # WebSocket receive timeout in seconds for images
-WS_VIDEO_TIMEOUT = 900  # WebSocket receive timeout for video generation (15 min)
+WS_CONNECT_TIMEOUT = 10  # WebSocket connection timeout in seconds
+WS_RECV_TIMEOUT = 5  # WebSocket receive timeout per message
+WS_IMAGE_TIMEOUT = 60  # Total timeout for image generation
+WS_VIDEO_TIMEOUT = 900  # Total timeout for video generation (15 min)
 COMFYUI_WS_URL = "ws://127.0.0.1:8188/ws"
 
 class DreamRequest(BaseModel):
@@ -321,7 +323,7 @@ async def receive_img2vid(req: Img2VidRequest):
 async def root():
   return {"message": "Welcome to Comfynaut GPU Wizardry Portal, now speaking true ComfyUI 'prompt' dialect!"}
 
-def wait_for_execution_via_websocket(prompt_id: str, client_id: str, timeout: int = WS_TIMEOUT):
+def wait_for_execution_via_websocket(prompt_id: str, client_id: str, timeout: int = WS_IMAGE_TIMEOUT):
   """Wait for ComfyUI execution completion using WebSocket (event-driven, no polling).
   
   This is more efficient than polling because:
@@ -341,7 +343,8 @@ def wait_for_execution_via_websocket(prompt_id: str, client_id: str, timeout: in
   try:
     ws_url = f"{COMFYUI_WS_URL}?clientId={client_id}"
     logger.info("Connecting to ComfyUI WebSocket at %s", ws_url)
-    ws = websocket.create_connection(ws_url, timeout=timeout)
+    ws = websocket.create_connection(ws_url, timeout=WS_CONNECT_TIMEOUT)
+    ws.settimeout(WS_RECV_TIMEOUT)  # Set recv timeout to avoid blocking
     
     start_time = time.time()
     while True:
@@ -377,7 +380,7 @@ def wait_for_execution_via_websocket(prompt_id: str, client_id: str, timeout: in
             return False
             
       except websocket.WebSocketTimeoutException:
-        # Timeout on recv, but total timeout not reached yet
+        # Timeout on recv - check if total timeout exceeded, then continue waiting
         continue
         
   except websocket.WebSocketException as e:
@@ -442,7 +445,7 @@ def wait_for_image_generation(prompt_id: str, client_id: str = None):
     client_id = str(uuid.uuid4())
     
   # Try WebSocket-based wait first (more efficient)
-  if wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_TIMEOUT):
+  if wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_IMAGE_TIMEOUT):
     return get_output_from_history(prompt_id, "images")
   
   # Fallback: check history directly (execution might have completed before we connected)
