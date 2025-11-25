@@ -378,7 +378,8 @@ def wait_for_video_generation(prompt_id: str):
   """Wait for video generation with extended timeout (up to 15 minutes).
   
   Videos take much longer to generate than images, so we poll less frequently
-  but for a longer total duration.
+  but for a longer total duration. We check both the queue and history on each
+  iteration to detect completion as soon as the job finishes.
   """
   video_url = None
   logger.info("Waiting for video generation (interval %ss, max %s polls)", VIDEO_POLL_INTERVAL, VIDEO_MAX_POLL_ATTEMPTS)
@@ -388,6 +389,8 @@ def wait_for_video_generation(prompt_id: str):
     progress_log_polls = VIDEO_PROGRESS_LOG_INTERVAL // VIDEO_POLL_INTERVAL
     if i % progress_log_polls == 0:  # Log progress every VIDEO_PROGRESS_LOG_INTERVAL seconds
       logger.info("Video generation in progress (%ss elapsed)", elapsed)
+    
+    # Check queue first
     try:
       queue_resp = requests.get(f"{COMFYUI_API}/queue")
       if queue_resp.status_code == 200:
@@ -415,30 +418,28 @@ def wait_for_video_generation(prompt_id: str):
                   return video_url
     except Exception as e:
       logger.error("Polling queue error at %ss: %s", elapsed, e)
+    
+    # Check history on each iteration (completed jobs move from queue to history)
+    try:
+      hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
+      if hist_resp.status_code == 200:
+        hist_json = hist_resp.json()
+        data = hist_json.get(prompt_id)
+        if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
+          for node_output in data["outputs"].values():
+            # Check for video output
+            gifs = node_output.get("gifs", [])
+            if gifs:
+              vidinfo = gifs[0]
+              video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
+              logger.info("Found video in /history at %ss: %s", elapsed, video_url)
+              return video_url
+    except Exception as e:
+      logger.error("Polling history error at %ss: %s", elapsed, e)
+    
     time.sleep(VIDEO_POLL_INTERVAL)
   
-  # If not found in queue, check history
-  logger.info("Searched /queue in vain... seeking video in /history.")
-  try:
-    hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
-    if hist_resp.status_code == 200:
-      hist_json = hist_resp.json()
-      data = hist_json.get(prompt_id)
-      if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
-        for node_output in data["outputs"].values():
-          # Check for video output
-          gifs = node_output.get("gifs", [])
-          if gifs:
-            vidinfo = gifs[0]
-            video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
-            logger.info("Found video in /history: %s", video_url)
-            return video_url
-      else:
-        logger.info("No finished video outputs found in history for this prompt_id.")
-    else:
-      logger.warning("Could not fetch /history/%s status %s (video)", prompt_id, hist_resp.status_code)
-  except Exception as e:
-    logger.error("Polling history error (video): %s", e)
+  logger.warning("Video generation timed out after %ss", VIDEO_MAX_POLL_ATTEMPTS * VIDEO_POLL_INTERVAL)
   return video_url
 
 if __name__ == "__main__":
