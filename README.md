@@ -24,6 +24,7 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 - 🦜 **Telegram Integration** - Control everything from your favorite messaging app
 - 🎨 **ComfyUI Powered** - Leverage the full power of ComfyUI workflows
 - ⚡ **Fast & Asynchronous** - Async HTTP requests with httpx for smooth sailing
+- 🔌 **WebSocket Communication** - Real-time, event-driven updates from ComfyUI (no polling!)
 - 🔧 **Dynamic Workflow Selection** - Choose from multiple workflows via inline menu
 - 🧙 **Smart Node Detection** - Automatically finds positive prompt and image load nodes
 - 🎲 **Random Seed Generation** - Each request generates unique variations
@@ -106,7 +107,7 @@ Before you embark on this magical journey, ensure you have:
 #### 1️⃣ Install Dependencies
 
 ```bash
-pip install python-telegram-bot python-dotenv fastapi uvicorn httpx
+pip install python-telegram-bot python-dotenv fastapi uvicorn httpx websocket-client
 ```
 
 Or use the provided `requirements.txt`:
@@ -115,8 +116,9 @@ python-telegram-bot>=20.0
 python-dotenv>=1.0.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
-httpx>=0.24.0
+httpx>=0.25.0
 requests>=2.31.0
+websocket-client>=1.8.0
 ```
 
 Then install with:
@@ -302,9 +304,9 @@ All components run on one machine with a GPU:
 
 ```
 ┌─────────────┐         ┌──────────────┐         ┌─────────────┐
-│  Telegram   │ /dream  │  Comfynaut   │  HTTP   │   ComfyUI   │
-│    User     │────────▶│  API Server  │────────▶│   (Local)   │
-│             │         │ (Port 8000)  │         │ (Port 8188) │
+│  Telegram   │ /dream  │  Comfynaut   │  HTTP + │   ComfyUI   │
+│    User     │────────▶│  API Server  │ WebSocket│   (Local)   │
+│             │         │ (Port 8000)  │────────▶│ (Port 8188) │
 └─────────────┘         └──────────────┘         └─────────────┘
       ▲                         │                         │
       │                         │                         │
@@ -314,6 +316,8 @@ All components run on one machine with a GPU:
                         │     Bot      │    Image URL
                         └──────────────┘
 ```
+
+> 🔌 **Note**: The API server uses WebSocket for real-time, event-driven communication with ComfyUI instead of polling. This is more efficient as it eliminates unnecessary HTTP requests while waiting for generation to complete.
 
 ### 🌐 Two Machine Setup (Recommended for Security)
 
@@ -328,8 +332,8 @@ This is the **recommended setup** that separates internet-facing components from
 │  │ Telegram Bot   │  │    HTTP Request    │  │ API Server     │  │
 │  │ (Port 443/80)  │──┼───────────────────▶│  │ (Port 8000)    │  │
 │  └────────────────┘  │                    │  └────────────────┘  │
-│         ▲            │                    │         │            │
-└─────────┼────────────┘                    │         ▼            │
+│         ▲            │                    │     │ WebSocket      │
+└─────────┼────────────┘                    │     ▼            │
           │                                 │  ┌────────────────┐  │
           │                                 │  │ ComfyUI        │  │
           │              Image URL          │  │ (Port 8188)    │  │

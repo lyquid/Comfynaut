@@ -11,6 +11,7 @@ import copy
 import base64
 import uuid
 import logging
+import websocket
 
 app = FastAPI()
 
@@ -28,10 +29,11 @@ IMG2VID_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "i2v - WAN 2.2 Smooth Workfl
 COMFYUI_API = "http://127.0.0.1:8188"
 PROMPT_HELPERS = ", high quality, masterpiece, best quality, 8k"
 
-# Video generation timeout settings (videos can take 10+ minutes)
-VIDEO_POLL_INTERVAL = 10  # seconds between polling
-VIDEO_MAX_POLL_ATTEMPTS = 90  # 90 * 10 seconds = 15 minutes max wait
-VIDEO_PROGRESS_LOG_INTERVAL = 60  # Log progress every 60 seconds
+# WebSocket settings for real-time communication with ComfyUI
+# WebSocket is more efficient than polling - no wasted HTTP requests
+WS_TIMEOUT = 30  # WebSocket receive timeout in seconds for images
+WS_VIDEO_TIMEOUT = 900  # WebSocket receive timeout for video generation (15 min)
+COMFYUI_WS_URL = "ws://127.0.0.1:8188/ws"
 
 class DreamRequest(BaseModel):
   prompt: str
@@ -319,128 +321,157 @@ async def receive_img2vid(req: Img2VidRequest):
 async def root():
   return {"message": "Welcome to Comfynaut GPU Wizardry Portal, now speaking true ComfyUI 'prompt' dialect!"}
 
-def wait_for_image_generation(prompt_id: str):
-  image_url = None
-  for i in range(15):
-    try:
-      queue_resp = requests.get(f"{COMFYUI_API}/queue")
-      if queue_resp.status_code == 200:
-        queue_data = queue_resp.json()
-        queue_items = []
-        if isinstance(queue_data, list):
-          queue_items = queue_data
-        elif isinstance(queue_data, dict):
-          queue_items = queue_data.get("queue_running", []) + queue_data.get("queue_done", [])
-        for item in queue_items:
-          if (
-            isinstance(item, dict)
-            and item.get("prompt_id") == prompt_id
-            and "outputs" in item
-          ):
-            outputs = item["outputs"]
-            if outputs:
-              for node_output in outputs.values():
-                images = node_output.get("images", [])
-                if images:
-                  imginfo = images[0]
-                  image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
-                  logger.info("Found image in /queue at %ss: %s", 2*i, image_url)
-                  break
-          if image_url:
-            break
-    except Exception as e:
-      logger.error("Polling queue error: %s", e)
-    time.sleep(2)
-  if not image_url:
-    logger.info("Searched /queue in vain... seeking in /history.")
-    try:
-      hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
-      if hist_resp.status_code == 200:
-        hist_json = hist_resp.json()
-        data = hist_json.get(prompt_id)
-        if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
-          for node_output in data["outputs"].values():
-            images = node_output.get("images", [])
-            if images:
-              imginfo = images[0]
-              image_url = f"{COMFYUI_API}/view?filename={imginfo['filename']}&subfolder={imginfo['subfolder']}"
-              logger.info("Found image in /history: %s", image_url)
-              break
-        else:
-          logger.info("No finished outputs found in history for this prompt_id.")
-      else:
-        logger.warning("Could not fetch /history/%s status %s", prompt_id, hist_resp.status_code)
-    except Exception as e:
-      logger.error("Polling history error: %s", e)
-  return image_url
-
-def wait_for_video_generation(prompt_id: str):
-  """Wait for video generation with extended timeout (up to 15 minutes).
+def wait_for_execution_via_websocket(prompt_id: str, client_id: str, timeout: int = WS_TIMEOUT):
+  """Wait for ComfyUI execution completion using WebSocket (event-driven, no polling).
   
-  Videos take much longer to generate than images, so we poll less frequently
-  but for a longer total duration. We check both the queue and history on each
-  iteration to detect completion as soon as the job finishes.
+  This is more efficient than polling because:
+  1. No wasted HTTP requests
+  2. Immediate notification when execution completes
+  3. Real-time progress tracking possible
+  
+  Args:
+    prompt_id: The prompt ID to wait for
+    client_id: The client ID used when queueing the prompt
+    timeout: Maximum time to wait for execution in seconds
+    
+  Returns:
+    True if execution completed successfully, False otherwise
   """
-  video_url = None
-  logger.info("Waiting for video generation (interval %ss, max %s polls)", VIDEO_POLL_INTERVAL, VIDEO_MAX_POLL_ATTEMPTS)
+  ws = None
+  try:
+    ws_url = f"{COMFYUI_WS_URL}?clientId={client_id}"
+    logger.info("Connecting to ComfyUI WebSocket at %s", ws_url)
+    ws = websocket.create_connection(ws_url, timeout=timeout)
+    
+    start_time = time.time()
+    while True:
+      elapsed = time.time() - start_time
+      if elapsed > timeout:
+        logger.warning("WebSocket timeout after %ss waiting for prompt %s", timeout, prompt_id)
+        return False
+      
+      try:
+        message = ws.recv()
+        if isinstance(message, str):
+          data = json.loads(message)
+          msg_type = data.get("type")
+          msg_data = data.get("data", {})
+          
+          if msg_type == "executing":
+            current_node = msg_data.get("node")
+            current_prompt_id = msg_data.get("prompt_id")
+            
+            # When node is None and prompt_id matches, execution is complete
+            if current_node is None and current_prompt_id == prompt_id:
+              logger.info("Execution completed for prompt %s (took %.1fs)", prompt_id, elapsed)
+              return True
+            elif current_prompt_id == prompt_id:
+              logger.debug("Executing node %s for prompt %s", current_node, prompt_id)
+              
+          elif msg_type == "execution_error":
+            logger.error("Execution error for prompt %s: %s", prompt_id, msg_data)
+            return False
+            
+          elif msg_type == "execution_interrupted":
+            logger.warning("Execution interrupted for prompt %s", prompt_id)
+            return False
+            
+      except websocket.WebSocketTimeoutException:
+        # Timeout on recv, but total timeout not reached yet
+        continue
+        
+  except websocket.WebSocketException as e:
+    logger.error("WebSocket error while waiting for prompt %s: %s", prompt_id, e)
+    return False
+  except Exception as e:
+    logger.error("Unexpected error in WebSocket wait for prompt %s: %s", prompt_id, e)
+    return False
+  finally:
+    if ws:
+      try:
+        ws.close()
+      except Exception:
+        pass
+
+def get_output_from_history(prompt_id: str, output_type: str = "images"):
+  """Fetch outputs from ComfyUI history after execution completes.
   
-  for i in range(VIDEO_MAX_POLL_ATTEMPTS):
-    elapsed = i * VIDEO_POLL_INTERVAL
-    progress_log_polls = VIDEO_PROGRESS_LOG_INTERVAL // VIDEO_POLL_INTERVAL
-    if i % progress_log_polls == 0:  # Log progress every VIDEO_PROGRESS_LOG_INTERVAL seconds
-      logger.info("Video generation in progress (%ss elapsed)", elapsed)
+  Args:
+    prompt_id: The prompt ID to fetch results for
+    output_type: Type of output to fetch ("images" or "gifs" for videos)
     
-    # Check queue first
-    try:
-      queue_resp = requests.get(f"{COMFYUI_API}/queue")
-      if queue_resp.status_code == 200:
-        queue_data = queue_resp.json()
-        queue_items = []
-        if isinstance(queue_data, list):
-          queue_items = queue_data
-        elif isinstance(queue_data, dict):
-          queue_items = queue_data.get("queue_running", []) + queue_data.get("queue_done", [])
-        for item in queue_items:
-          if (
-            isinstance(item, dict)
-            and item.get("prompt_id") == prompt_id
-            and "outputs" in item
-          ):
-            outputs = item["outputs"]
-            if outputs:
-              for node_output in outputs.values():
-                # Check for video output (gifs array from VHS_VideoCombine)
-                gifs = node_output.get("gifs", [])
-                if gifs:
-                  vidinfo = gifs[0]
-                  video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
-                  logger.info("Found video in /queue at %ss: %s", elapsed, video_url)
-                  return video_url
-    except Exception as e:
-      logger.error("Polling queue error at %ss: %s", elapsed, e)
-    
-    # Check history on each iteration (completed jobs move from queue to history)
-    try:
-      hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}")
-      if hist_resp.status_code == 200:
-        hist_json = hist_resp.json()
-        data = hist_json.get(prompt_id)
-        if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
-          for node_output in data["outputs"].values():
-            # Check for video output
-            gifs = node_output.get("gifs", [])
-            if gifs:
-              vidinfo = gifs[0]
-              video_url = f"{COMFYUI_API}/view?filename={vidinfo['filename']}&subfolder={vidinfo.get('subfolder', '')}&type={vidinfo.get('type', 'output')}"
-              logger.info("Found video in /history at %ss: %s", elapsed, video_url)
-              return video_url
-    except Exception as e:
-      logger.error("Polling history error at %ss: %s", elapsed, e)
-    
-    time.sleep(VIDEO_POLL_INTERVAL)
+  Returns:
+    URL to the output file or None if not found
+  """
+  try:
+    hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}", timeout=10)
+    if hist_resp.status_code == 200:
+      hist_json = hist_resp.json()
+      data = hist_json.get(prompt_id)
+      if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
+        for node_output in data["outputs"].values():
+          outputs = node_output.get(output_type, [])
+          if outputs:
+            output_info = outputs[0]
+            if output_type == "images":
+              url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}"
+            else:  # gifs/videos
+              url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}&type={output_info.get('type', 'output')}"
+            logger.info("Found %s in /history: %s", output_type, url)
+            return url
+      else:
+        logger.info("No finished outputs found in history for prompt %s", prompt_id)
+    else:
+      logger.warning("Could not fetch /history/%s, status %s", prompt_id, hist_resp.status_code)
+  except Exception as e:
+    logger.error("Error fetching history for prompt %s: %s", prompt_id, e)
+  return None
+
+def wait_for_image_generation(prompt_id: str, client_id: str = None):
+  """Wait for image generation using WebSocket (event-driven).
   
-  logger.warning("Video generation timed out after %ss", VIDEO_MAX_POLL_ATTEMPTS * VIDEO_POLL_INTERVAL)
-  return video_url
+  Uses WebSocket to receive real-time execution updates from ComfyUI,
+  eliminating the need for polling. Falls back to history check if 
+  WebSocket fails.
+  
+  Args:
+    prompt_id: The prompt ID to wait for
+    client_id: The client ID used when queueing (optional, creates new if not provided)
+  """
+  if client_id is None:
+    client_id = str(uuid.uuid4())
+    
+  # Try WebSocket-based wait first (more efficient)
+  if wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_TIMEOUT):
+    return get_output_from_history(prompt_id, "images")
+  
+  # Fallback: check history directly (execution might have completed before we connected)
+  logger.info("WebSocket wait unsuccessful, checking history directly...")
+  return get_output_from_history(prompt_id, "images")
+
+def wait_for_video_generation(prompt_id: str, client_id: str = None):
+  """Wait for video generation using WebSocket with extended timeout.
+  
+  Videos take much longer to generate than images (10+ minutes),
+  so we use a longer timeout. Uses WebSocket for efficient event-driven
+  waiting instead of polling.
+  
+  Args:
+    prompt_id: The prompt ID to wait for
+    client_id: The client ID used when queueing (optional, creates new if not provided)
+  """
+  if client_id is None:
+    client_id = str(uuid.uuid4())
+  
+  logger.info("Waiting for video generation via WebSocket (timeout: %ss)", WS_VIDEO_TIMEOUT)
+  
+  # Try WebSocket-based wait (more efficient)
+  if wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_VIDEO_TIMEOUT):
+    return get_output_from_history(prompt_id, "gifs")
+  
+  # Fallback: check history directly
+  logger.info("WebSocket wait unsuccessful, checking history directly...")
+  return get_output_from_history(prompt_id, "gifs")
 
 if __name__ == "__main__":
   import uvicorn
