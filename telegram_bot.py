@@ -39,7 +39,8 @@ logging.info("Parrot-bot awakens and flaps its wings...")
 # Dynamically load available workflows from the workflows directory
 def load_workflows():
   """Dynamically load workflows from the workflows directory.
-  Returns a dictionary mapping display names to workflow filenames.
+  Returns a dictionary mapping display names to workflow filenames,
+  sorted alphabetically by display name.
   """
   workflows = {}
   workflow_files = glob.glob("workflows/*.json")
@@ -51,7 +52,8 @@ def load_workflows():
   if not workflows:
     logging.warning("No workflows found in workflows/ directory!")
     return {"Default": "default.json"}  # Fallback if no workflows found
-  return workflows
+  # Sort workflows alphabetically by display name
+  return dict(sorted(workflows.items()))
 
 WORKFLOWS = load_workflows()
 
