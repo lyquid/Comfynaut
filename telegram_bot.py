@@ -12,9 +12,10 @@ import os
 import logging
 import httpx
 import glob
+import base64
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from io import BytesIO
 from urllib.parse import urlparse
 
@@ -163,6 +164,92 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error("Unexpected error while processing /dream command for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
+# Handler for the /img2vid command
+async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  logging.info("Received /img2vid command from user: %s", update.effective_user.username)
+  
+  # Check if the message is a reply to a photo or contains a photo
+  photo = None
+  if update.message.reply_to_message and update.message.reply_to_message.photo:
+    # User replied to a message containing a photo
+    photo = update.message.reply_to_message.photo[-1]  # Get highest quality photo
+  elif update.message.photo:
+    # User sent a photo with /img2vid as caption
+    photo = update.message.photo[-1]
+  
+  if not photo:
+    await update.message.reply_text(
+      "🎬 To create a video, please:\n"
+      "1. Reply to an image with /img2vid, or\n"
+      "2. Send an image with /img2vid as the caption"
+    )
+    return
+  
+  await update.message.reply_text("🎬 Preparing your image for video generation...")
+  
+  try:
+    # Download the photo from Telegram
+    photo_file = await context.bot.get_file(photo.file_id)
+    photo_bytes = BytesIO()
+    await photo_file.download_to_memory(photo_bytes)
+    photo_bytes.seek(0)
+    
+    # Encode the image as base64
+    image_data = base64.b64encode(photo_bytes.read()).decode('utf-8')
+    
+    await update.message.reply_text(
+      "🦜 Taking yer image to the GPU wizard's castle for video magic...\n"
+      "⏳ Video generation takes several minutes, please be patient!"
+    )
+    
+    # Show typing action to indicate video is being prepared
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_VIDEO)
+    
+    # Send to backend API server with extended timeout for video generation
+    payload = {"image_data": image_data}
+    logging.info("Sending img2vid request to API server")
+    
+    async with httpx.AsyncClient(timeout=900.0) as client:  # 15 min timeout for video
+      resp = await client.post(f"{API_SERVER}/img2vid", json=payload)
+      resp.raise_for_status()
+      data = resp.json()
+      
+      msg = data.get("message", "Hmmm, the castle gate is silent...")
+      video_url = data.get("video_url")
+      status = data.get("status")
+
+      if status == "success" and video_url:
+        try:
+          # Replace localhost in video URL with actual API server hostname for Telegram delivery
+          parsed_api = urlparse(API_SERVER)
+          video_url_visible = video_url.replace("127.0.0.1", parsed_api.hostname)
+          
+          # Download the generated video
+          vid_resp = await client.get(video_url_visible)
+          vid_resp.raise_for_status()
+          
+          vid_bytes = BytesIO(vid_resp.content)
+          vid_bytes.name = "comfynaut_video.mp4"
+          # Send the video to the user
+          await update.message.reply_video(video=vid_bytes, caption=msg)
+          logging.info("Sent video to user %s!", update.effective_user.username)
+        except Exception as vid_err:
+          logging.error("Error downloading or sending video for user %s: %s", update.effective_user.username, vid_err)
+          await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nBut alas, the video could not be delivered: {vid_err}")
+      else:
+        # No video to send, reply with message
+        await update.message.reply_text(f"🏰 Wizard's castle: {msg}")
+        logging.warning("No video to send for user: %s", update.effective_user.username)
+
+  except httpx.RequestError as e:
+    # Handle network errors when contacting the API server
+    logging.error("Request error while processing /img2vid command for user %s: %s", update.effective_user.username, e)
+    await update.message.reply_text(f"⚠️ Unable to reach the wizard's castle: {e}")
+  except Exception as e:
+    # Handle unexpected errors
+    logging.error("Unexpected error while processing /img2vid command for user %s: %s", update.effective_user.username, e)
+    await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
+
 # Entry point for running the bot directly
 if __name__ == '__main__':
   logging.info("Initializing the Parrot-bot's Telegram mind-link...")
@@ -170,8 +257,11 @@ if __name__ == '__main__':
   # Register command and callback handlers
   app.add_handler(CommandHandler("start", start))
   app.add_handler(CommandHandler("dream", dream))
+  app.add_handler(CommandHandler("img2vid", img2vid))
   app.add_handler(CommandHandler("workflows", workflows))
   app.add_handler(CallbackQueryHandler(button))
+  # Handler for photos with /img2vid as caption
+  app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r'^/img2vid'), img2vid))
   logging.info("Bot is now polling for orders among the stars.")
-  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, or /workflows")
+  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, /img2vid, or /workflows")
   app.run_polling()
