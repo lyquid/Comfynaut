@@ -39,7 +39,7 @@ logger = logging.getLogger("comfynaut.api")
 
 # Workflow file paths
 WORKFLOWS_DIR = os.path.join(os.path.dirname(__file__), "workflows")
-DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "text2img_LORA.json")
+DEFAULT_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "basic_sdxl_t2i.json")
 IMG2IMG_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "i2i - CyberRealistic Pony.json")
 IMG2VID_WORKFLOW_PATH = os.path.join(WORKFLOWS_DIR, "i2v - WAN 2.2 Smooth Workflow v2.0.json")
 
