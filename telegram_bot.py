@@ -222,7 +222,9 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
           # Replace localhost in video URL with actual API server hostname for Telegram delivery
           parsed_api = urlparse(API_SERVER)
-          video_url_visible = video_url.replace("127.0.0.1", parsed_api.hostname)
+          video_url_visible = video_url
+          if parsed_api.hostname:
+            video_url_visible = video_url.replace("127.0.0.1", parsed_api.hostname)
           
           # Download the generated video
           vid_resp = await client.get(video_url_visible)
