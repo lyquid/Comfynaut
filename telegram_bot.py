@@ -113,7 +113,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {"prompt": prompt, "workflow": workflow_file}
     logging.info("Sending payload to API server: %s", payload)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
       resp = await client.post(f"{API_SERVER}/dream", json=payload)
       resp.raise_for_status()
       data = resp.json()
