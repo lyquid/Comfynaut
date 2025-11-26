@@ -197,6 +197,9 @@ async def receive_dream(req: DreamRequest):
     logger.info("No workflow specified, using default.")
   base_workflow = load_workflow(workflow_path)
   payload = build_workflow(req.prompt, base_workflow)
+  # Generate client_id to track this request via WebSocket
+  client_id = str(uuid.uuid4())
+  payload["client_id"] = client_id
   try:
     resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)
     resp.raise_for_status()
@@ -208,7 +211,7 @@ async def receive_dream(req: DreamRequest):
   except Exception as e:
     logger.error("Error reaching ComfyUI: %s", e)
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
-  image_url = wait_for_image_generation(prompt_id)
+  image_url = wait_for_image_generation(prompt_id, client_id)
   if image_url:
     return {
       "status": "success",
@@ -250,6 +253,9 @@ async def receive_img2img(req: Img2ImgRequest):
   except Exception as e:
     logger.error("Error building img2img workflow: %s", e)
     return {"status": "error", "message": f"Error building workflow: {e}", "echo": req.prompt}
+  # Generate client_id to track this request via WebSocket
+  client_id = str(uuid.uuid4())
+  payload["client_id"] = client_id
   try:
     resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)
     resp.raise_for_status()
@@ -261,7 +267,7 @@ async def receive_img2img(req: Img2ImgRequest):
   except Exception as e:
     logger.error("Error reaching ComfyUI for img2img: %s", e)
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}", "echo": req.prompt}
-  image_url = wait_for_image_generation(prompt_id)
+  image_url = wait_for_image_generation(prompt_id, client_id)
   if image_url:
     return {
       "status": "success",
@@ -303,6 +309,9 @@ async def receive_img2vid(req: Img2VidRequest):
   except Exception as e:
     logger.error("Error building img2vid workflow: %s", e)
     return {"status": "error", "message": f"Error building workflow: {e}"}
+  # Generate client_id to track this request via WebSocket
+  client_id = str(uuid.uuid4())
+  payload["client_id"] = client_id
   try:
     resp = requests.post(f"{COMFYUI_API}/prompt", json=payload, timeout=10)
     resp.raise_for_status()
@@ -315,7 +324,7 @@ async def receive_img2vid(req: Img2VidRequest):
     logger.error("Error reaching ComfyUI for img2vid: %s", e)
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}"}
   # Wait for video generation with extended timeout
-  video_url = wait_for_video_generation(prompt_id)
+  video_url = wait_for_video_generation(prompt_id, client_id)
   if video_url:
     return {
       "status": "success",
