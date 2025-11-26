@@ -50,11 +50,14 @@ def run_telegram_bot():
   app.add_handler(CommandHandler("start", telegram_bot.start))
   app.add_handler(CommandHandler("dream", telegram_bot.dream))
   app.add_handler(CommandHandler("workflows", telegram_bot.workflows))
+  app.add_handler(CommandHandler("img2img", telegram_bot.img2img))
   app.add_handler(CommandHandler("img2vid", telegram_bot.img2vid))
+  # Handler for photos with /img2img as caption
+  app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r'^/img2img'), telegram_bot.img2img))
   # Handler for photos with /img2vid as caption
   app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r'^/img2vid'), telegram_bot.img2vid))
-  # Handler for standalone photos (without /img2vid caption)
-  app.add_handler(MessageHandler(filters.PHOTO & ~filters.CaptionRegex(r'^/img2vid'), telegram_bot.handle_photo))
+  # Handler for standalone photos (without /img2img or /img2vid caption)
+  app.add_handler(MessageHandler(filters.PHOTO & ~filters.CaptionRegex(r'^/img2img') & ~filters.CaptionRegex(r'^/img2vid'), telegram_bot.handle_photo))
   app.add_handler(CallbackQueryHandler(telegram_bot.button))
   logging.info("🎩🦜 Comfynaut Telegram Parrot listening for orders!")
   app.run_polling()

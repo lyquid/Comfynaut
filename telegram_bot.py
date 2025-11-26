@@ -24,6 +24,10 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 API_SERVER = os.getenv("COMFY_API_HOST")
 
+# Timeout constants for API requests (in seconds)
+IMG2IMG_TIMEOUT = 120.0  # 2 minutes for image-to-image generation
+IMG2VID_TIMEOUT = 900.0  # 15 minutes for video generation
+
 # Configure logging for the bot
 logging.basicConfig(
   format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -209,7 +213,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {"image_data": image_data}
     logging.info("Sending img2vid request to API server")
     
-    async with httpx.AsyncClient(timeout=900.0) as client:  # 15 min timeout for video
+    async with httpx.AsyncClient(timeout=IMG2VID_TIMEOUT) as client:
       resp = await client.post(f"{API_SERVER}/img2vid", json=payload)
       resp.raise_for_status()
       data = resp.json()
@@ -252,16 +256,130 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error("Unexpected error while processing /img2vid command for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
-# Handler for photos sent without /img2vid caption
+# Handler for the /img2img command
+async def img2img(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  logging.info("Received /img2img command from user: %s", update.effective_user.username)
+  
+  # Get prompt from command arguments or caption
+  prompt = ""
+  if context.args:
+    prompt = " ".join(context.args)
+  elif update.message.caption:
+    # Remove the /img2img command from caption to get the prompt
+    caption = update.message.caption
+    if caption.startswith("/img2img"):
+      prompt = caption[len("/img2img"):].strip()
+  
+  # Check if the message is a reply to a photo or contains a photo
+  photo = None
+  if update.message.reply_to_message and update.message.reply_to_message.photo:
+    # User replied to a message containing a photo
+    photo = update.message.reply_to_message.photo[-1]  # Get highest quality photo
+  elif update.message.photo:
+    # User sent a photo with /img2img as caption
+    photo = update.message.photo[-1]
+  
+  if not photo:
+    await update.message.reply_text(
+      "🎨 To transform an image, please:\n"
+      "1. Reply to an image with /img2img <prompt>, or\n"
+      "2. Send an image with /img2img <prompt> as the caption\n\n"
+      "Example: /img2img make it look like a painting"
+    )
+    return
+  
+  if not prompt:
+    await update.message.reply_text(
+      "⚡ Please include a prompt describing the transformation!\n"
+      "Example: /img2img make it look like a watercolor painting"
+    )
+    return
+  
+  await update.message.reply_text("🎨 Preparing your image for transformation...")
+  
+  try:
+    # Download the photo from Telegram
+    photo_file = await context.bot.get_file(photo.file_id)
+    photo_bytes = BytesIO()
+    await photo_file.download_to_memory(photo_bytes)
+    photo_bytes.seek(0)
+    
+    # Encode the image as base64
+    image_data = base64.b64encode(photo_bytes.read()).decode('utf-8')
+    
+    await update.message.reply_text(
+      f"🦜 Taking yer image to the GPU wizard's castle...\n"
+      f"Transformation prompt: {prompt}"
+    )
+    
+    # Show typing action to indicate image is being prepared
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_PHOTO)
+    
+    # Send to backend API server
+    payload = {"prompt": prompt, "image_data": image_data}
+    logging.info("Sending img2img request to API server with prompt: '%s'", prompt)
+    
+    async with httpx.AsyncClient(timeout=IMG2IMG_TIMEOUT) as client:
+      resp = await client.post(f"{API_SERVER}/img2img", json=payload)
+      resp.raise_for_status()
+      data = resp.json()
+      
+      msg = data.get("message", "Hmmm, the castle gate is silent...")
+      image_url = data.get("image_url")
+      status = data.get("status")
+
+      if status == "success" and image_url:
+        try:
+          # Replace localhost in image URL with actual API server hostname for Telegram delivery
+          parsed_api = urlparse(API_SERVER)
+          image_url_visible = image_url
+          if parsed_api.hostname:
+            image_url_visible = image_url.replace("127.0.0.1", parsed_api.hostname)
+          
+          # Download the generated image
+          img_resp = await client.get(image_url_visible)
+          img_resp.raise_for_status()
+          
+          img_bytes = BytesIO(img_resp.content)
+          img_bytes.name = "comfynaut_img2img.png"
+          caption = f"{msg}\n(Prompt: {prompt})"
+          # Send the image to the user
+          await update.message.reply_photo(photo=img_bytes, caption=caption)
+          logging.info("Sent img2img result to user %s!", update.effective_user.username)
+        except Exception as img_err:
+          logging.error("Error downloading or sending img2img image for user %s: %s", update.effective_user.username, img_err)
+          await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nBut alas, the art could not be delivered: {img_err}")
+      else:
+        # No image to send, reply with message
+        await update.message.reply_text(f"🏰 Wizard's castle: {msg}")
+        logging.warning("No img2img image to send for user: %s", update.effective_user.username)
+
+  except httpx.RequestError as e:
+    # Handle network errors when contacting the API server
+    logging.error("Request error while processing /img2img command for user %s: %s", update.effective_user.username, e)
+    await update.message.reply_text(f"⚠️ Unable to reach the wizard's castle: {e}")
+  except Exception as e:
+    # Handle unexpected errors
+    logging.error("Unexpected error while processing /img2img command for user %s: %s", update.effective_user.username, e)
+    await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
+
+# Handler for photos sent without /img2vid or /img2img caption
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  """Handle photos sent to the bot without /img2vid caption.
-  Informs the user how to use photos for video generation.
+  """Handle photos sent without command captions.
+  
+  Provides usage instructions for available image processing commands
+  (/img2img and /img2vid).
   """
   logging.info("Received photo from user: %s", update.effective_user.username)
   await update.message.reply_text(
-    "📸 Nice picture! To create a video from it:\n"
-    "• Reply to this image with /img2vid, or\n"
-    "• Send another image with /img2vid as the caption"
+    "📸 Nice picture! Here's what you can do with it:\n\n"
+    "🎨 **Transform the image:**\n"
+    "• Reply to this image with /img2img <prompt>\n"
+    "• Send another image with /img2img <prompt> as caption\n\n"
+    "🎬 **Create a video:**\n"
+    "• Reply to this image with /img2vid\n"
+    "• Send another image with /img2vid as caption",
+    parse_mode="Markdown"
   )
 
 # Entry point for running the bot directly
@@ -271,13 +389,16 @@ if __name__ == '__main__':
   # Register command and callback handlers
   app.add_handler(CommandHandler("start", start))
   app.add_handler(CommandHandler("dream", dream))
+  app.add_handler(CommandHandler("img2img", img2img))
   app.add_handler(CommandHandler("img2vid", img2vid))
   app.add_handler(CommandHandler("workflows", workflows))
   app.add_handler(CallbackQueryHandler(button))
+  # Handler for photos with /img2img as caption
+  app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r'^/img2img'), img2img))
   # Handler for photos with /img2vid as caption
   app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r'^/img2vid'), img2vid))
-  # Handler for standalone photos (without /img2vid caption)
-  app.add_handler(MessageHandler(filters.PHOTO & ~filters.CaptionRegex(r'^/img2vid'), handle_photo))
+  # Handler for standalone photos (without /img2img or /img2vid caption)
+  app.add_handler(MessageHandler(filters.PHOTO & ~filters.CaptionRegex(r'^/img2img') & ~filters.CaptionRegex(r'^/img2vid'), handle_photo))
   logging.info("Bot is now polling for orders among the stars.")
-  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, /img2vid, or /workflows")
+  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, /img2img, /img2vid, or /workflows")
   app.run_polling()

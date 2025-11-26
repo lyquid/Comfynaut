@@ -26,6 +26,8 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 - ⚡ **Fast & Asynchronous** - Async HTTP requests with httpx for smooth sailing
 - 🔌 **WebSocket Communication** - Real-time, event-driven updates from ComfyUI (no polling!)
 - 🔧 **Dynamic Workflow Selection** - Choose from multiple workflows via inline menu
+- 🖼️ **Image-to-Image** - Transform existing images with text prompts
+- 🎬 **Image-to-Video** - Generate videos from still images
 - 🧙 **Smart Node Detection** - Automatically finds positive prompt and image load nodes
 - 🎲 **Random Seed Generation** - Each request generates unique variations
 - 🎯 **Quality Prompts** - Automatically enhances prompts with quality keywords
@@ -166,6 +168,17 @@ The bot will:
 3. ⏳ Wait for the image to be generated
 4. 🖼️ Send you the generated image
 
+#### `/img2img` - Transform an existing image 🖼️➡️🎨
+```
+/img2img make it look like a watercolor painting
+```
+
+To use this command:
+1. **Reply to an image** with `/img2img <prompt>`, or
+2. **Send an image** with `/img2img <prompt>` as the caption
+
+The bot will transform the image based on your prompt using the CyberRealistic Pony workflow.
+
 ### Example Prompts
 
 Try these magical prompts:
@@ -174,6 +187,8 @@ Try these magical prompts:
 - `/dream cute robot reading a book in a cozy library`
 - `/dream fantasy landscape with floating islands and waterfalls`
 - `/dream portrait of a friendly dragon wearing glasses`
+- `/img2img make her smile` (reply to a portrait)
+- `/img2img turn into an oil painting` (with an image)
 
 ## 🏗️ Architecture
 
