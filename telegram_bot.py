@@ -252,6 +252,18 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error("Unexpected error while processing /img2vid command for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
+# Handler for photos sent without /img2vid caption
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Handle photos sent to the bot without /img2vid caption.
+  Informs the user how to use photos for video generation.
+  """
+  logging.info("Received photo from user: %s", update.effective_user.username)
+  await update.message.reply_text(
+    "📸 Nice picture! To create a video from it:\n"
+    "• Reply to this image with /img2vid, or\n"
+    "• Send another image with /img2vid as the caption"
+  )
+
 # Entry point for running the bot directly
 if __name__ == '__main__':
   logging.info("Initializing the Parrot-bot's Telegram mind-link...")
@@ -264,6 +276,8 @@ if __name__ == '__main__':
   app.add_handler(CallbackQueryHandler(button))
   # Handler for photos with /img2vid as caption
   app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r'^/img2vid'), img2vid))
+  # Handler for standalone photos (without /img2vid caption)
+  app.add_handler(MessageHandler(filters.PHOTO & ~filters.CaptionRegex(r'^/img2vid'), handle_photo))
   logging.info("Bot is now polling for orders among the stars.")
   print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, /img2vid, or /workflows")
   app.run_polling()
