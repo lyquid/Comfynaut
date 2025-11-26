@@ -222,6 +222,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
       
       msg = data.get("message", "Hmmm, the castle gate is silent...")
       video_url = data.get("video_url")
+      last_frame_url = data.get("last_frame_url")
       status = data.get("status")
 
       if status == "success" and video_url:
@@ -241,6 +242,30 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
           # Send the video to the user
           await update.message.reply_video(video=vid_bytes, caption=msg)
           logging.info("Sent video to user %s!", update.effective_user.username)
+          
+          # Send the last frame image if available (allows continuing with the video)
+          if last_frame_url:
+            try:
+              last_frame_url_visible = last_frame_url
+              if parsed_api.hostname:
+                last_frame_url_visible = last_frame_url.replace("127.0.0.1", parsed_api.hostname)
+              
+              # Download the last frame image
+              frame_resp = await client.get(last_frame_url_visible)
+              frame_resp.raise_for_status()
+              
+              frame_bytes = BytesIO(frame_resp.content)
+              frame_bytes.name = "comfynaut_lastframe.png"
+              # Send the last frame image to the user
+              await update.message.reply_photo(
+                photo=frame_bytes, 
+                caption="🖼️ Last frame of your video - use this to continue the story with /img2vid!"
+              )
+              logging.info("Sent last frame to user %s!", update.effective_user.username)
+            except Exception as frame_err:
+              logging.error("Error downloading or sending last frame for user %s: %s", update.effective_user.username, frame_err)
+              # Don't fail the whole operation if just the last frame fails
+              
         except Exception as vid_err:
           logging.error("Error downloading or sending video for user %s: %s", update.effective_user.username, vid_err)
           await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nBut alas, the video could not be delivered: {vid_err}")

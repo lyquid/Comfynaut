@@ -347,14 +347,20 @@ async def receive_img2vid(req: Img2VidRequest):
   except Exception as e:
     logger.error("Error reaching ComfyUI for img2vid: %s", e)
     return {"status": "error", "message": f"Error reaching ComfyUI: {e}"}
-  # Wait for video generation with extended timeout
-  video_url = wait_for_video_generation(prompt_id, client_id)
+  # Wait for video generation with extended timeout and get both video and last frame
+  outputs = wait_for_video_generation(prompt_id, client_id, include_last_frame=True)
+  video_url = outputs.get("video_url")
+  last_frame_url = outputs.get("last_frame_url")
   if video_url:
-    return {
+    response = {
       "status": "success",
       "video_url": video_url,
       "message": "🎬 Video conjured! Your moving masterpiece awaits at the video URL."
     }
+    if last_frame_url:
+      response["last_frame_url"] = last_frame_url
+      response["message"] = "🎬 Video conjured! Your moving masterpiece and its last frame await."
+    return response
   else:
     return {
       "status": "error",
@@ -462,6 +468,40 @@ def get_output_from_history(prompt_id: str, output_type: str = "images"):
     logger.error("Error fetching history for prompt %s: %s", prompt_id, e)
   return None
 
+# Utility: Fetch all outputs from ComfyUI history after execution completes
+def get_all_outputs_from_history(prompt_id: str):
+  """Fetch all outputs (images and videos) from ComfyUI history after execution completes.
+  Args:
+    prompt_id: The prompt ID to fetch results for
+  Returns:
+    Dictionary with 'images' and 'gifs' keys, each containing a list of URLs
+  """
+  result = {"images": [], "gifs": []}
+  try:
+    hist_resp = requests.get(f"{COMFYUI_API}/history/{prompt_id}", timeout=10)
+    if hist_resp.status_code == 200:
+      hist_json = hist_resp.json()
+      data = hist_json.get(prompt_id)
+      if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
+        for node_output in data["outputs"].values():
+          # Collect images
+          for img_info in node_output.get("images", []):
+            url = f"{COMFYUI_API}/view?filename={img_info['filename']}&subfolder={img_info.get('subfolder', '')}"
+            result["images"].append(url)
+            logger.info("Found image in /history: %s", url)
+          # Collect videos/gifs
+          for gif_info in node_output.get("gifs", []):
+            url = f"{COMFYUI_API}/view?filename={gif_info['filename']}&subfolder={gif_info.get('subfolder', '')}&type={gif_info.get('type', 'output')}"
+            result["gifs"].append(url)
+            logger.info("Found video/gif in /history: %s", url)
+      else:
+        logger.info("No finished outputs found in history for prompt %s", prompt_id)
+    else:
+      logger.warning("Could not fetch /history/%s, status %s", prompt_id, hist_resp.status_code)
+  except Exception as e:
+    logger.error("Error fetching history for prompt %s: %s", prompt_id, e)
+  return result
+
 # Utility: Wait for image generation using WebSocket (event-driven)
 def wait_for_image_generation(prompt_id: str, client_id: str = None):
   """Wait for image generation using WebSocket (event-driven).
@@ -482,7 +522,7 @@ def wait_for_image_generation(prompt_id: str, client_id: str = None):
   return get_output_from_history(prompt_id, "images")
 
 # Utility: Wait for video generation using WebSocket with extended timeout
-def wait_for_video_generation(prompt_id: str, client_id: str = None):
+def wait_for_video_generation(prompt_id: str, client_id: str = None, include_last_frame: bool = False):
   """Wait for video generation using WebSocket with extended timeout.
   Videos take much longer to generate than images (10+ minutes),
   so we use a longer timeout. Uses WebSocket for efficient event-driven
@@ -490,16 +530,28 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None):
   Args:
     prompt_id: The prompt ID to wait for
     client_id: The client ID used when queueing (optional, creates new if not provided)
+    include_last_frame: If True, returns dict with both video_url and last_frame_url
+  Returns:
+    If include_last_frame is False: URL to video or None
+    If include_last_frame is True: dict with 'video_url' and 'last_frame_url' keys
   """
   if client_id is None:
     client_id = str(uuid.uuid4())
   logger.info("Waiting for video generation via WebSocket (timeout: %ss)", WS_VIDEO_TIMEOUT)
   # Try WebSocket-based wait (more efficient)
-  if wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_VIDEO_TIMEOUT):
+  execution_success = wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_VIDEO_TIMEOUT)
+  if not execution_success:
+    # Fallback: check history directly
+    logger.info("WebSocket wait unsuccessful, checking history directly...")
+  
+  if include_last_frame:
+    # Get all outputs from history (both video and images)
+    all_outputs = get_all_outputs_from_history(prompt_id)
+    video_url = all_outputs["gifs"][0] if all_outputs["gifs"] else None
+    last_frame_url = all_outputs["images"][0] if all_outputs["images"] else None
+    return {"video_url": video_url, "last_frame_url": last_frame_url}
+  else:
     return get_output_from_history(prompt_id, "gifs")
-  # Fallback: check history directly
-  logger.info("WebSocket wait unsuccessful, checking history directly...")
-  return get_output_from_history(prompt_id, "gifs")
 
 # Entry point for running the API server directly
 if __name__ == "__main__":
