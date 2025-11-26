@@ -36,6 +36,14 @@ logging.basicConfig(
 
 logging.info("Parrot-bot awakens and flaps its wings...")
 
+# Utility: Replace localhost with actual API server hostname for Telegram delivery
+def make_url_visible(url: str) -> str:
+  """Replace localhost in URL with actual API server hostname for Telegram delivery."""
+  parsed_api = urlparse(API_SERVER)
+  if parsed_api.hostname:
+    return url.replace("127.0.0.1", parsed_api.hostname)
+  return url
+
 # Dynamically load available workflows from the workflows directory
 def load_workflows():
   """Dynamically load workflows from the workflows directory.
@@ -140,8 +148,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
       if status == "success" and image_url:
         try:
           # Replace localhost in image URL with actual API server hostname for Telegram delivery
-          parsed_api = urlparse(API_SERVER)
-          image_url_visible = image_url.replace("127.0.0.1", parsed_api.hostname)
+          image_url_visible = make_url_visible(image_url)
           
           # Download the generated image
           img_resp = await client.get(image_url_visible)
@@ -228,10 +235,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
       if status == "success" and video_url:
         try:
           # Replace localhost in video URL with actual API server hostname for Telegram delivery
-          parsed_api = urlparse(API_SERVER)
-          video_url_visible = video_url
-          if parsed_api.hostname:
-            video_url_visible = video_url.replace("127.0.0.1", parsed_api.hostname)
+          video_url_visible = make_url_visible(video_url)
           
           # Download the generated video
           vid_resp = await client.get(video_url_visible)
@@ -246,9 +250,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
           # Send the last frame image if available (allows continuing with the video)
           if last_frame_url:
             try:
-              last_frame_url_visible = last_frame_url
-              if parsed_api.hostname:
-                last_frame_url_visible = last_frame_url.replace("127.0.0.1", parsed_api.hostname)
+              last_frame_url_visible = make_url_visible(last_frame_url)
               
               # Download the last frame image
               frame_resp = await client.get(last_frame_url_visible)
@@ -358,10 +360,7 @@ async def img2img(update: Update, context: ContextTypes.DEFAULT_TYPE):
       if status == "success" and image_url:
         try:
           # Replace localhost in image URL with actual API server hostname for Telegram delivery
-          parsed_api = urlparse(API_SERVER)
-          image_url_visible = image_url
-          if parsed_api.hostname:
-            image_url_visible = image_url.replace("127.0.0.1", parsed_api.hostname)
+          image_url_visible = make_url_visible(image_url)
           
           # Download the generated image
           img_resp = await client.get(image_url_visible)
