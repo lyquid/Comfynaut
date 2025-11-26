@@ -24,6 +24,10 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 API_SERVER = os.getenv("COMFY_API_HOST")
 
+# Timeout constants for API requests (in seconds)
+IMG2IMG_TIMEOUT = 120.0  # 2 minutes for image-to-image generation
+IMG2VID_TIMEOUT = 900.0  # 15 minutes for video generation
+
 # Configure logging for the bot
 logging.basicConfig(
   format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -209,7 +213,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {"image_data": image_data}
     logging.info("Sending img2vid request to API server")
     
-    async with httpx.AsyncClient(timeout=900.0) as client:  # 15 min timeout for video
+    async with httpx.AsyncClient(timeout=IMG2VID_TIMEOUT) as client:
       resp = await client.post(f"{API_SERVER}/img2vid", json=payload)
       resp.raise_for_status()
       data = resp.json()
@@ -315,7 +319,7 @@ async def img2img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {"prompt": prompt, "image_data": image_data}
     logging.info("Sending img2img request to API server with prompt: '%s'", prompt)
     
-    async with httpx.AsyncClient(timeout=120.0) as client:  # 2 min timeout for img2img
+    async with httpx.AsyncClient(timeout=IMG2IMG_TIMEOUT) as client:
       resp = await client.post(f"{API_SERVER}/img2img", json=payload)
       resp.raise_for_status()
       data = resp.json()
@@ -361,8 +365,10 @@ async def img2img(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Handler for photos sent without /img2vid or /img2img caption
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  """Handle photos sent to the bot without /img2vid or /img2img caption.
-  Informs the user how to use photos for generation.
+  """Handle photos sent without command captions.
+  
+  Provides usage instructions for available image processing commands
+  (/img2img and /img2vid).
   """
   logging.info("Received photo from user: %s", update.effective_user.username)
   await update.message.reply_text(
