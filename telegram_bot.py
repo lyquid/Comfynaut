@@ -36,6 +36,14 @@ logging.basicConfig(
 
 logging.info("Parrot-bot awakens and flaps its wings...")
 
+# Utility: Replace localhost with actual API server hostname for Telegram delivery
+def make_url_visible(url: str) -> str:
+  """Replace localhost in URL with actual API server hostname for Telegram delivery."""
+  parsed_api = urlparse(API_SERVER)
+  if parsed_api.hostname:
+    return url.replace("127.0.0.1", parsed_api.hostname)
+  return url
+
 # Dynamically load available workflows from the workflows directory
 def load_workflows():
   """Dynamically load workflows from the workflows directory.
@@ -140,8 +148,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
       if status == "success" and image_url:
         try:
           # Replace localhost in image URL with actual API server hostname for Telegram delivery
-          parsed_api = urlparse(API_SERVER)
-          image_url_visible = image_url.replace("127.0.0.1", parsed_api.hostname)
+          image_url_visible = make_url_visible(image_url)
           
           # Download the generated image
           img_resp = await client.get(image_url_visible)
@@ -222,15 +229,13 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
       
       msg = data.get("message", "Hmmm, the castle gate is silent...")
       video_url = data.get("video_url")
+      last_frame_url = data.get("last_frame_url")
       status = data.get("status")
 
       if status == "success" and video_url:
         try:
           # Replace localhost in video URL with actual API server hostname for Telegram delivery
-          parsed_api = urlparse(API_SERVER)
-          video_url_visible = video_url
-          if parsed_api.hostname:
-            video_url_visible = video_url.replace("127.0.0.1", parsed_api.hostname)
+          video_url_visible = make_url_visible(video_url)
           
           # Download the generated video
           vid_resp = await client.get(video_url_visible)
@@ -241,6 +246,28 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
           # Send the video to the user
           await update.message.reply_video(video=vid_bytes, caption=msg)
           logging.info("Sent video to user %s!", update.effective_user.username)
+          
+          # Send the last frame image if available (allows continuing with the video)
+          if last_frame_url:
+            try:
+              last_frame_url_visible = make_url_visible(last_frame_url)
+              
+              # Download the last frame image
+              frame_resp = await client.get(last_frame_url_visible)
+              frame_resp.raise_for_status()
+              
+              frame_bytes = BytesIO(frame_resp.content)
+              frame_bytes.name = "comfynaut_lastframe.png"
+              # Send the last frame image to the user
+              await update.message.reply_photo(
+                photo=frame_bytes, 
+                caption="🖼️ Last frame of your video - use this to continue the story with /img2vid!"
+              )
+              logging.info("Sent last frame to user %s!", update.effective_user.username)
+            except Exception as frame_err:
+              logging.error("Error downloading or sending last frame for user %s: %s", update.effective_user.username, frame_err)
+              # Don't fail the whole operation if just the last frame fails
+              
         except Exception as vid_err:
           logging.error("Error downloading or sending video for user %s: %s", update.effective_user.username, vid_err)
           await update.message.reply_text(f"🏰 Wizard's castle: {msg}\nBut alas, the video could not be delivered: {vid_err}")
@@ -333,10 +360,7 @@ async def img2img(update: Update, context: ContextTypes.DEFAULT_TYPE):
       if status == "success" and image_url:
         try:
           # Replace localhost in image URL with actual API server hostname for Telegram delivery
-          parsed_api = urlparse(API_SERVER)
-          image_url_visible = image_url
-          if parsed_api.hostname:
-            image_url_visible = image_url.replace("127.0.0.1", parsed_api.hostname)
+          image_url_visible = make_url_visible(image_url)
           
           # Download the generated image
           img_resp = await client.get(image_url_visible)
