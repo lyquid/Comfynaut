@@ -187,7 +187,7 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
   elif update.message.caption:
     # Remove the /img2vid command from caption to get the prompt
-    caption = update.message.caption
+    caption = update.message.caption.strip()
     if caption.startswith("/img2vid"):
       prompt = caption[len("/img2vid"):].strip()
   

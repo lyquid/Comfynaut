@@ -206,9 +206,14 @@ def build_img2vid_workflow(image_filename: str, prompt: str = "", base_workflow=
   workflow[image_load_node_id]["inputs"]["image"] = image_filename
   # Find and update the positive prompt node (PrimitiveStringMultiline)
   prompt_node_id = find_primitive_prompt_node(workflow)
-  if prompt_node_id and prompt:
-    workflow[prompt_node_id]["inputs"]["value"] = prompt
-    logger.info("Set positive prompt in node %s: '%s'", prompt_node_id, prompt)
+  if prompt_node_id:
+    if prompt:
+      workflow[prompt_node_id]["inputs"]["value"] = prompt
+      logger.info("Set positive prompt in node %s: '%s'", prompt_node_id, prompt)
+    else:
+      logger.info("Prompt node %s found but no prompt provided, using workflow default", prompt_node_id)
+  else:
+    logger.warning("No PrimitiveStringMultiline 'Positive' node found in workflow")
   # Find and update Seed (rgthree) node for randomization
   try:
     seed_node_id = find_seed_node(workflow)
