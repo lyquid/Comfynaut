@@ -67,6 +67,7 @@ class Img2ImgRequest(BaseModel):
 
 class Img2VidRequest(BaseModel):
   image_data: str  # Base64 encoded image
+  prompt: str = ""  # Optional positive prompt for video generation
 
 # Utility: Load a workflow JSON file with robust decoding and error handling
 def load_workflow(path=DEFAULT_WORKFLOW_PATH):
@@ -126,6 +127,19 @@ def find_seed_node(workflow):
       return node_id
   raise ValueError("Could not find Seed (rgthree) node in workflow!")
 
+# Utility: Find the PrimitiveStringMultiline node for positive prompt in video workflows
+def find_primitive_prompt_node(workflow):
+  """Find the PrimitiveStringMultiline node used for positive prompt input.
+  This is used in video generation workflows where the prompt is stored in a
+  PrimitiveStringMultiline node with title 'Positive'.
+  """
+  for node_id, node_data in workflow.items():
+    if isinstance(node_data, dict) and node_data.get("class_type") == "PrimitiveStringMultiline":
+      title = node_data.get("_meta", {}).get("title", "").lower()
+      if "positive" in title:
+        return node_id
+  return None
+
 # Utility: Find the VHS_VideoCombine node for video output
 def find_video_combine_node(workflow, require_save_output=False):
   """Find the VHS_VideoCombine node for video output.
@@ -182,7 +196,7 @@ def build_img2img_workflow(prompt: str, image_filename: str, base_workflow=None)
   return {"prompt": workflow}
 
 # Build an image-to-video workflow for WAN i2v
-def build_img2vid_workflow(image_filename: str, base_workflow=None):
+def build_img2vid_workflow(image_filename: str, prompt: str = "", base_workflow=None):
   """Build the image-to-video workflow for WAN i2v."""
   if base_workflow is None:
     base_workflow = load_workflow(IMG2VID_WORKFLOW_PATH)
@@ -190,6 +204,11 @@ def build_img2vid_workflow(image_filename: str, base_workflow=None):
   # Find and update LoadImage node
   image_load_node_id = find_image_load_node(workflow)
   workflow[image_load_node_id]["inputs"]["image"] = image_filename
+  # Find and update the positive prompt node (PrimitiveStringMultiline)
+  prompt_node_id = find_primitive_prompt_node(workflow)
+  if prompt_node_id and prompt:
+    workflow[prompt_node_id]["inputs"]["value"] = prompt
+    logger.info("Set positive prompt in node %s: '%s'", prompt_node_id, prompt)
   # Find and update Seed (rgthree) node for randomization
   try:
     seed_node_id = find_seed_node(workflow)
@@ -308,7 +327,7 @@ async def receive_img2img(req: Img2ImgRequest):
 # Endpoint: /img2vid - image-to-video generation
 @app.post("/img2vid")
 async def receive_img2vid(req: Img2VidRequest):
-  logger.info("img2vid request received")
+  logger.info("img2vid request received with prompt: '%s'", req.prompt)
   try:
     image_data = base64.b64decode(req.image_data)
   except Exception as e:
@@ -329,7 +348,7 @@ async def receive_img2vid(req: Img2VidRequest):
     return {"status": "error", "message": f"Error uploading image to ComfyUI: {e}"}
   base_workflow = load_workflow(IMG2VID_WORKFLOW_PATH)
   try:
-    payload = build_img2vid_workflow(image_filename, base_workflow)
+    payload = build_img2vid_workflow(image_filename, req.prompt, base_workflow)
   except Exception as e:
     logger.error("Error building img2vid workflow: %s", e)
     return {"status": "error", "message": f"Error building workflow: {e}"}

@@ -181,6 +181,16 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
   logging.info("Received /img2vid command from user: %s", update.effective_user.username)
   
+  # Get prompt from command arguments or caption
+  prompt = ""
+  if context.args:
+    prompt = " ".join(context.args)
+  elif update.message.caption:
+    # Remove the /img2vid command from caption to get the prompt
+    caption = update.message.caption
+    if caption.startswith("/img2vid"):
+      prompt = caption[len("/img2vid"):].strip()
+  
   # Check if the message is a reply to a photo or contains a photo
   photo = None
   if update.message.reply_to_message and update.message.reply_to_message.photo:
@@ -193,8 +203,9 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
   if not photo:
     await update.message.reply_text(
       "🎬 To create a video, please:\n"
-      "1. Reply to an image with /img2vid, or\n"
-      "2. Send an image with /img2vid as the caption"
+      "1. Reply to an image with /img2vid <prompt>, or\n"
+      "2. Send an image with /img2vid <prompt> as the caption\n\n"
+      "Example: /img2vid the person walks forward slowly"
     )
     return
   
@@ -210,8 +221,9 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Encode the image as base64
     image_data = base64.b64encode(photo_bytes.read()).decode('utf-8')
     
+    prompt_info = f"\nPrompt: {prompt}" if prompt else ""
     await update.message.reply_text(
-      "🦜 Taking yer image to the GPU wizard's castle for video magic...\n"
+      f"🦜 Taking yer image to the GPU wizard's castle for video magic...{prompt_info}\n"
       "⏳ Video generation takes several minutes, please be patient!"
     )
     
@@ -219,8 +231,8 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_VIDEO)
     
     # Send to backend API server with extended timeout for video generation
-    payload = {"image_data": image_data}
-    logging.info("Sending img2vid request to API server")
+    payload = {"image_data": image_data, "prompt": prompt}
+    logging.info("Sending img2vid request to API server with prompt: '%s'", prompt)
     
     async with httpx.AsyncClient(timeout=IMG2VID_TIMEOUT) as client:
       resp = await client.post(f"{API_SERVER}/img2vid", json=payload)
@@ -243,8 +255,12 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
           
           vid_bytes = BytesIO(vid_resp.content)
           vid_bytes.name = "comfynaut_video.mp4"
+          # Build caption with optional prompt
+          caption = msg
+          if prompt:
+            caption = f"{msg}\n(Prompt: {prompt})"
           # Send the video to the user
-          await update.message.reply_video(video=vid_bytes, caption=msg)
+          await update.message.reply_video(video=vid_bytes, caption=caption)
           logging.info("Sent video to user %s!", update.effective_user.username)
           
           # Send the last frame image if available (allows continuing with the video)
