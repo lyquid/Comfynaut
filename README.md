@@ -1,3 +1,5 @@
+<a id="top"></a>
+
 # 🧙‍♂️⚓ Comfynaut
 
 > *"All we have to decide is what to do with the prompts that are given to us."*  
@@ -364,6 +366,6 @@ Having trouble? Found a bug? Have a feature request?
 
 *May your prompts be creative and your GPUs be cool!* 🧙‍♂️⚓
 
-[⬆ Back to Top](#comfynaut)
+[⬆ Back to Top](#top)
 
 </div>
