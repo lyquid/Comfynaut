@@ -28,6 +28,10 @@ API_SERVER = os.getenv("COMFY_API_HOST")
 IMG2IMG_TIMEOUT = 120.0  # 2 minutes for image-to-image generation
 IMG2VID_TIMEOUT = 900.0  # 15 minutes for video generation
 
+# Telegram caption length limit
+# The Telegram Bot API enforces a maximum of 1024 characters for photo and video captions
+MAX_CAPTION_LENGTH = 1024
+
 # Configure logging for the bot
 logging.basicConfig(
   format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -35,6 +39,29 @@ logging.basicConfig(
 )
 
 logging.info("Parrot-bot awakens and flaps its wings...")
+
+# Utility: Truncate caption to fit Telegram's 1024 character limit
+def truncate_caption(caption: str, max_length: int = MAX_CAPTION_LENGTH) -> str:
+  """Truncate caption to fit within Telegram's character limit.
+  
+  If the caption exceeds the maximum length, it will be truncated and
+  an ellipsis (...) will be added at the end to indicate truncation.
+  
+  Args:
+    caption: The caption text to truncate
+    max_length: Maximum allowed length (default: 1024 for Telegram)
+    
+  Returns:
+    Truncated caption string that fits within the limit
+  """
+  if len(caption) <= max_length:
+    return caption
+  
+  # Reserve space for ellipsis
+  ellipsis = "..."
+  truncated_length = max_length - len(ellipsis)
+  
+  return caption[:truncated_length] + ellipsis
 
 # Utility: Replace localhost with actual API server hostname for Telegram delivery
 def make_url_visible(url: str) -> str:
@@ -157,6 +184,8 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
           img_bytes = BytesIO(img_resp.content)
           img_bytes.name = "comfynaut_image.png"
           caption = f"{msg}\n(Prompt: {prompt})\n(Workflow: {workflow_file})"
+          # Truncate caption to fit Telegram's 1024 character limit
+          caption = truncate_caption(caption)
           # Send the image to the user
           await update.message.reply_photo(photo=img_bytes, caption=caption)
           logging.info("Sent image to user %s!", update.effective_user.username)
@@ -259,6 +288,8 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
           caption = msg
           if prompt:
             caption = f"{msg}\n(Prompt: {prompt})"
+          # Truncate caption to fit Telegram's 1024 character limit
+          caption = truncate_caption(caption)
           # Send the video to the user
           await update.message.reply_video(video=vid_bytes, caption=caption)
           logging.info("Sent video to user %s!", update.effective_user.username)
@@ -275,9 +306,10 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
               frame_bytes = BytesIO(frame_resp.content)
               frame_bytes.name = "comfynaut_lastframe.png"
               # Send the last frame image to the user
+              last_frame_caption = "🖼️ Last frame of your video - use this to continue the story with /img2vid!"
               await update.message.reply_photo(
                 photo=frame_bytes, 
-                caption="🖼️ Last frame of your video - use this to continue the story with /img2vid!"
+                caption=truncate_caption(last_frame_caption)
               )
               logging.info("Sent last frame to user %s!", update.effective_user.username)
             except Exception as frame_err:
@@ -385,6 +417,8 @@ async def img2img(update: Update, context: ContextTypes.DEFAULT_TYPE):
           img_bytes = BytesIO(img_resp.content)
           img_bytes.name = "comfynaut_img2img.png"
           caption = f"{msg}\n(Prompt: {prompt})"
+          # Truncate caption to fit Telegram's 1024 character limit
+          caption = truncate_caption(caption)
           # Send the image to the user
           await update.message.reply_photo(photo=img_bytes, caption=caption)
           logging.info("Sent img2img result to user %s!", update.effective_user.username)
