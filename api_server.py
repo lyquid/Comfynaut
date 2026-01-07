@@ -568,6 +568,31 @@ def wait_for_image_generation(prompt_id: str, client_id: str = None):
   logger.info("WebSocket wait unsuccessful, checking history directly...")
   return get_output_from_history(prompt_id, "images")
 
+# Utility: Extract video and last frame URLs from history outputs
+def extract_video_and_frame_urls(prompt_id: str):
+  """Extract video URL and last frame URL from ComfyUI history outputs.
+  Args:
+    prompt_id: The prompt ID to fetch results for
+  Returns:
+    Dictionary with 'video_url' and 'last_frame_url' keys (may be None if not found)
+  """
+  all_outputs = get_all_outputs_from_history(prompt_id)
+  result = {}
+  
+  # Get the last video from gifs list
+  if all_outputs.get("gifs"):
+    result["video_url"] = all_outputs["gifs"][-1]
+  else:
+    result["video_url"] = None
+  
+  # Get the last image (last frame) from images list
+  if all_outputs.get("images"):
+    result["last_frame_url"] = all_outputs["images"][-1]
+  else:
+    result["last_frame_url"] = None
+  
+  return result
+
 # Utility: Wait for video generation using WebSocket with extended timeout
 def wait_for_video_generation(prompt_id: str, client_id: str = None, include_last_frame: bool = False):
   """Wait for video generation using WebSocket with extended timeout.
@@ -596,23 +621,7 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None, include_las
     
     # Handle include_last_frame parameter
     if include_last_frame:
-      # Get all outputs (videos and images) to extract both video and last frame
-      all_outputs = get_all_outputs_from_history(prompt_id)
-      result = {}
-      
-      # Get the last video from gifs list
-      if all_outputs.get("gifs"):
-        result["video_url"] = all_outputs["gifs"][-1]
-      else:
-        result["video_url"] = None
-      
-      # Get the last image (last frame) from images list
-      if all_outputs.get("images"):
-        result["last_frame_url"] = all_outputs["images"][-1]
-      else:
-        result["last_frame_url"] = None
-      
-      return result
+      return extract_video_and_frame_urls(prompt_id)
     else:
       # Backward compatibility: return just the video URL string
       return get_output_from_history(prompt_id, "gifs")
@@ -621,23 +630,7 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None, include_las
   logger.info("WebSocket wait unsuccessful, checking history directly...")
   
   if include_last_frame:
-    # Get all outputs for fallback case
-    all_outputs = get_all_outputs_from_history(prompt_id)
-    result = {}
-    
-    # Get the last video from gifs list
-    if all_outputs.get("gifs"):
-      result["video_url"] = all_outputs["gifs"][-1]
-    else:
-      result["video_url"] = None
-    
-    # Get the last image (last frame) from images list
-    if all_outputs.get("images"):
-      result["last_frame_url"] = all_outputs["images"][-1]
-    else:
-      result["last_frame_url"] = None
-    
-    return result
+    return extract_video_and_frame_urls(prompt_id)
   else:
     # Backward compatibility: return just the video URL string
     return get_output_from_history(prompt_id, "gifs")
