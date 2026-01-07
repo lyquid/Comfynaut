@@ -505,6 +505,11 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None):
   logger.info("Waiting for video generation via WebSocket (timeout: %ss)", WS_VIDEO_TIMEOUT)
   # Try WebSocket-based wait (more efficient)
   if wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_VIDEO_TIMEOUT):
+    # Add a short delay after video generation completes to ensure the encoder
+    # properly flushes the last frame. This is a workaround for VHS_VideoCombine
+    # encoder flush issues where the last frame is sometimes dropped.
+    logger.info("Video generation completed, waiting 2s for encoder to flush...")
+    time.sleep(2)
     return get_output_from_history(prompt_id, "gifs")
   # Fallback: check history directly
   logger.info("WebSocket wait unsuccessful, checking history directly...")
