@@ -238,11 +238,21 @@ async def receive_dream(req: DreamRequest):
   workflow_path = DEFAULT_WORKFLOW_PATH
   if req.workflow:
     candidate_path = os.path.join(WORKFLOWS_DIR, req.workflow)
-    if os.path.isfile(candidate_path):
-      workflow_path = candidate_path
-      logger.info("Using workflow: %s", req.workflow)
+    # Normalize and ensure the candidate path stays within WORKFLOWS_DIR
+    base_dir = os.path.abspath(os.path.normpath(WORKFLOWS_DIR))
+    safe_candidate_path = os.path.abspath(os.path.normpath(candidate_path))
+    if safe_candidate_path == base_dir or safe_candidate_path.startswith(base_dir + os.sep):
+      if os.path.isfile(safe_candidate_path):
+        workflow_path = safe_candidate_path
+        logger.info("Using workflow: %s", req.workflow)
+      else:
+        logger.warning("Workflow file not found: %s, using default.", safe_candidate_path)
     else:
-      logger.warning("Workflow file not found: %s, using default.", candidate_path)
+      logger.warning(
+        "Rejected workflow path outside base directory: %s (base: %s)",
+        safe_candidate_path,
+        base_dir,
+      )
   else:
     logger.info("No workflow specified, using default.")
   base_workflow = load_workflow(workflow_path)
