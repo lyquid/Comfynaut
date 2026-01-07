@@ -56,6 +56,10 @@ WS_RECV_TIMEOUT = 5      # WebSocket receive timeout per message
 WS_IMAGE_TIMEOUT = 60    # Total timeout for image generation
 WS_VIDEO_TIMEOUT = 900   # Total timeout for video generation (15 min)
 
+# Video encoder flush delay (in seconds)
+# Workaround for VHS_VideoCombine encoder flush issue where last frame is sometimes dropped
+ENCODER_FLUSH_DELAY = 2  # Delay after video generation to ensure encoder flushes last frame
+
 # Request models for API endpoints
 class DreamRequest(BaseModel):
   prompt: str
@@ -508,8 +512,9 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None):
     # Add a short delay after video generation completes to ensure the encoder
     # properly flushes the last frame. This is a workaround for VHS_VideoCombine
     # encoder flush issues where the last frame is sometimes dropped.
-    logger.info("Video generation completed, waiting 2s for encoder to flush...")
-    time.sleep(2)
+    # Note: This blocks the calling thread but ensures video file is complete.
+    logger.info("Video generation completed, waiting %ss for encoder to flush...", ENCODER_FLUSH_DELAY)
+    time.sleep(ENCODER_FLUSH_DELAY)
     return get_output_from_history(prompt_id, "gifs")
   # Fallback: check history directly
   logger.info("WebSocket wait unsuccessful, checking history directly...")
