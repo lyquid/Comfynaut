@@ -56,6 +56,10 @@ WS_RECV_TIMEOUT = 5      # WebSocket receive timeout per message
 WS_IMAGE_TIMEOUT = 60    # Total timeout for image generation
 WS_VIDEO_TIMEOUT = 900   # Total timeout for video generation (15 min)
 
+# Video encoder flush delay (in seconds)
+# Workaround for VHS_VideoCombine encoder flush issue where last frame is sometimes dropped
+ENCODER_FLUSH_DELAY = 2  # Delay in seconds after video generation to ensure encoder flushes last frame
+
 # Request models for API endpoints
 class DreamRequest(BaseModel):
   prompt: str
@@ -474,16 +478,25 @@ def get_output_from_history(prompt_id: str, output_type: str = "images"):
       hist_json = hist_resp.json()
       data = hist_json.get(prompt_id)
       if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
-        for node_output in data["outputs"].values():
+        # Collect all outputs of the requested type from all nodes
+        all_outputs = []
+        for node_id, node_output in data["outputs"].items():
           outputs = node_output.get(output_type, [])
           if outputs:
-            output_info = outputs[0]
-            if output_type == "images":
-              url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}"
-            else:  # gifs/videos
-              url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}&type={output_info.get('type', 'output')}"
-            logger.info("Found %s in /history: %s", output_type, url)
-            return url
+            # Store each output with its node_id for potential debugging
+            for output in outputs:
+              all_outputs.append((node_id, output))
+        
+        # If we found outputs, use the LAST one (final processed output)
+        # This ensures we get the final video from workflows with multiple VHS_VideoCombine nodes
+        if all_outputs:
+          node_id, output_info = all_outputs[-1]
+          if output_type == "images":
+            url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}"
+          else:  # gifs/videos
+            url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}&type={output_info.get('type', 'output')}"
+          logger.info("Found %s in /history from node %s: %s", output_type, node_id, url)
+          return url
       else:
         logger.info("No finished outputs found in history for prompt %s", prompt_id)
     else:
@@ -563,19 +576,17 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None, include_las
     client_id = str(uuid.uuid4())
   logger.info("Waiting for video generation via WebSocket (timeout: %ss)", WS_VIDEO_TIMEOUT)
   # Try WebSocket-based wait (more efficient)
-  execution_success = wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_VIDEO_TIMEOUT)
-  if not execution_success:
-    # Fallback: check history directly
-    logger.info("WebSocket wait unsuccessful, checking history directly...")
-  
-  if include_last_frame:
-    # Get all outputs from history (both video and images)
-    all_outputs = get_all_outputs_from_history(prompt_id)
-    video_url = all_outputs["gifs"][0] if all_outputs["gifs"] else None
-    last_frame_url = all_outputs["images"][0] if all_outputs["images"] else None
-    return {"video_url": video_url, "last_frame_url": last_frame_url}
-  else:
+  if wait_for_execution_via_websocket(prompt_id, client_id, timeout=WS_VIDEO_TIMEOUT):
+    # Add a short delay after video generation completes to ensure the encoder
+    # properly flushes the last frame. This is a workaround for VHS_VideoCombine
+    # encoder flush issues where the last frame is sometimes dropped.
+    # Note: This blocks the calling thread but ensures video file is complete.
+    logger.info("Video generation completed, waiting %ss for encoder to flush...", ENCODER_FLUSH_DELAY)
+    time.sleep(ENCODER_FLUSH_DELAY)
     return get_output_from_history(prompt_id, "gifs")
+  # Fallback: check history directly
+  logger.info("WebSocket wait unsuccessful, checking history directly...")
+  return get_output_from_history(prompt_id, "gifs")
 
 # Entry point for running the API server directly
 if __name__ == "__main__":
