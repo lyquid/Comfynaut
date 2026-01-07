@@ -593,10 +593,54 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None, include_las
     # Note: This blocks the calling thread but ensures video file is complete.
     logger.info("Video generation completed, waiting %ss for encoder to flush...", ENCODER_FLUSH_DELAY)
     time.sleep(ENCODER_FLUSH_DELAY)
-    return get_output_from_history(prompt_id, "gifs")
+    
+    # Handle include_last_frame parameter
+    if include_last_frame:
+      # Get all outputs (videos and images) to extract both video and last frame
+      all_outputs = get_all_outputs_from_history(prompt_id)
+      result = {}
+      
+      # Get the last video from gifs list
+      if all_outputs.get("gifs"):
+        result["video_url"] = all_outputs["gifs"][-1]
+      else:
+        result["video_url"] = None
+      
+      # Get the last image (last frame) from images list
+      if all_outputs.get("images"):
+        result["last_frame_url"] = all_outputs["images"][-1]
+      else:
+        result["last_frame_url"] = None
+      
+      return result
+    else:
+      # Backward compatibility: return just the video URL string
+      return get_output_from_history(prompt_id, "gifs")
+  
   # Fallback: check history directly
   logger.info("WebSocket wait unsuccessful, checking history directly...")
-  return get_output_from_history(prompt_id, "gifs")
+  
+  if include_last_frame:
+    # Get all outputs for fallback case
+    all_outputs = get_all_outputs_from_history(prompt_id)
+    result = {}
+    
+    # Get the last video from gifs list
+    if all_outputs.get("gifs"):
+      result["video_url"] = all_outputs["gifs"][-1]
+    else:
+      result["video_url"] = None
+    
+    # Get the last image (last frame) from images list
+    if all_outputs.get("images"):
+      result["last_frame_url"] = all_outputs["images"][-1]
+    else:
+      result["last_frame_url"] = None
+    
+    return result
+  else:
+    # Backward compatibility: return just the video URL string
+    return get_output_from_history(prompt_id, "gifs")
 
 # Entry point for running the API server directly
 if __name__ == "__main__":
