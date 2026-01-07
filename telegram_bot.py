@@ -306,9 +306,10 @@ async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
               frame_bytes = BytesIO(frame_resp.content)
               frame_bytes.name = "comfynaut_lastframe.png"
               # Send the last frame image to the user
+              last_frame_caption = "🖼️ Last frame of your video - use this to continue the story with /img2vid!"
               await update.message.reply_photo(
                 photo=frame_bytes, 
-                caption="🖼️ Last frame of your video - use this to continue the story with /img2vid!"
+                caption=truncate_caption(last_frame_caption)
               )
               logging.info("Sent last frame to user %s!", update.effective_user.username)
             except Exception as frame_err:
