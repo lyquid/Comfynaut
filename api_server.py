@@ -568,6 +568,27 @@ def wait_for_image_generation(prompt_id: str, client_id: str = None):
   logger.info("WebSocket wait unsuccessful, checking history directly...")
   return get_output_from_history(prompt_id, "images")
 
+# Utility: Extract video and last frame URLs from history outputs
+def extract_video_and_frame_urls(prompt_id: str):
+  """Extract video URL and last frame URL from ComfyUI history outputs.
+  Args:
+    prompt_id: The prompt ID to fetch results for
+  Returns:
+    Dictionary with 'video_url' and 'last_frame_url' keys, where values may be None if not found
+  """
+  all_outputs = get_all_outputs_from_history(prompt_id)
+  result = {}
+  
+  # Get the last video from gifs list (check for non-empty list)
+  gifs = all_outputs.get("gifs", [])
+  result["video_url"] = gifs[-1] if gifs else None
+  
+  # Get the last image (last frame) from images list (check for non-empty list)
+  images = all_outputs.get("images", [])
+  result["last_frame_url"] = images[-1] if images else None
+  
+  return result
+
 # Utility: Wait for video generation using WebSocket with extended timeout
 def wait_for_video_generation(prompt_id: str, client_id: str = None, include_last_frame: bool = False):
   """Wait for video generation using WebSocket with extended timeout.
@@ -593,10 +614,16 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None, include_las
     # Note: This blocks the calling thread but ensures video file is complete.
     logger.info("Video generation completed, waiting %ss for encoder to flush...", ENCODER_FLUSH_DELAY)
     time.sleep(ENCODER_FLUSH_DELAY)
+  else:
+    # Fallback: check history directly
+    logger.info("WebSocket wait unsuccessful, checking history directly...")
+  
+  # Return results based on include_last_frame parameter
+  if include_last_frame:
+    return extract_video_and_frame_urls(prompt_id)
+  else:
+    # Backward compatibility: return just the video URL string
     return get_output_from_history(prompt_id, "gifs")
-  # Fallback: check history directly
-  logger.info("WebSocket wait unsuccessful, checking history directly...")
-  return get_output_from_history(prompt_id, "gifs")
 
 # Entry point for running the API server directly
 if __name__ == "__main__":
