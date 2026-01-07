@@ -579,17 +579,13 @@ def extract_video_and_frame_urls(prompt_id: str):
   all_outputs = get_all_outputs_from_history(prompt_id)
   result = {}
   
-  # Get the last video from gifs list
-  if all_outputs.get("gifs"):
-    result["video_url"] = all_outputs["gifs"][-1]
-  else:
-    result["video_url"] = None
+  # Get the last video from gifs list (check for non-empty list)
+  gifs = all_outputs.get("gifs", [])
+  result["video_url"] = gifs[-1] if gifs else None
   
-  # Get the last image (last frame) from images list
-  if all_outputs.get("images"):
-    result["last_frame_url"] = all_outputs["images"][-1]
-  else:
-    result["last_frame_url"] = None
+  # Get the last image (last frame) from images list (check for non-empty list)
+  images = all_outputs.get("images", [])
+  result["last_frame_url"] = images[-1] if images else None
   
   return result
 
