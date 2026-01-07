@@ -574,7 +574,7 @@ def extract_video_and_frame_urls(prompt_id: str):
   Args:
     prompt_id: The prompt ID to fetch results for
   Returns:
-    Dictionary with 'video_url' and 'last_frame_url' keys (may be None if not found)
+    Dictionary with 'video_url' and 'last_frame_url' keys, where values may be None if not found
   """
   all_outputs = get_all_outputs_from_history(prompt_id)
   result = {}
@@ -614,17 +614,11 @@ def wait_for_video_generation(prompt_id: str, client_id: str = None, include_las
     # Note: This blocks the calling thread but ensures video file is complete.
     logger.info("Video generation completed, waiting %ss for encoder to flush...", ENCODER_FLUSH_DELAY)
     time.sleep(ENCODER_FLUSH_DELAY)
-    
-    # Handle include_last_frame parameter
-    if include_last_frame:
-      return extract_video_and_frame_urls(prompt_id)
-    else:
-      # Backward compatibility: return just the video URL string
-      return get_output_from_history(prompt_id, "gifs")
+  else:
+    # Fallback: check history directly
+    logger.info("WebSocket wait unsuccessful, checking history directly...")
   
-  # Fallback: check history directly
-  logger.info("WebSocket wait unsuccessful, checking history directly...")
-  
+  # Return results based on include_last_frame parameter
   if include_last_frame:
     return extract_video_and_frame_urls(prompt_id)
   else:
