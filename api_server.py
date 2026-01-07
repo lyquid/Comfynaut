@@ -444,16 +444,25 @@ def get_output_from_history(prompt_id: str, output_type: str = "images"):
       hist_json = hist_resp.json()
       data = hist_json.get(prompt_id)
       if data and "outputs" in data and data.get("status", {}).get("status_str") == "success":
-        for node_output in data["outputs"].values():
+        # Collect all outputs of the requested type from all nodes
+        all_outputs = []
+        for node_id, node_output in data["outputs"].items():
           outputs = node_output.get(output_type, [])
           if outputs:
-            output_info = outputs[0]
-            if output_type == "images":
-              url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}"
-            else:  # gifs/videos
-              url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}&type={output_info.get('type', 'output')}"
-            logger.info("Found %s in /history: %s", output_type, url)
-            return url
+            # Store each output with its node_id for potential debugging
+            for output in outputs:
+              all_outputs.append((node_id, output))
+        
+        # If we found outputs, use the LAST one (final processed output)
+        # This ensures we get the final video from workflows with multiple VHS_VideoCombine nodes
+        if all_outputs:
+          node_id, output_info = all_outputs[-1]
+          if output_type == "images":
+            url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}"
+          else:  # gifs/videos
+            url = f"{COMFYUI_API}/view?filename={output_info['filename']}&subfolder={output_info.get('subfolder', '')}&type={output_info.get('type', 'output')}"
+          logger.info("Found %s in /history from node %s: %s", output_type, node_id, url)
+          return url
       else:
         logger.info("No finished outputs found in history for prompt %s", prompt_id)
     else:
