@@ -58,7 +58,7 @@ WS_VIDEO_TIMEOUT = 900   # Total timeout for video generation (15 min)
 
 # Video encoder flush delay (in seconds)
 # Workaround for VHS_VideoCombine encoder flush issue where last frame is sometimes dropped
-ENCODER_FLUSH_DELAY = 2  # Delay after video generation to ensure encoder flushes last frame
+ENCODER_FLUSH_DELAY = 2  # Delay in seconds after video generation to ensure encoder flushes last frame
 
 # Request models for API endpoints
 class DreamRequest(BaseModel):
