@@ -339,10 +339,10 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.UPLOAD_PHOTO)
     
     # Send a progress message every 5 images
-    if count % 5 == 1 and count > 1:
+    if count % 5 == 0:
       await context.bot.send_message(
         chat_id=chat_id,
-        text=f"🎨 Marathon Progress: Generated {count-1} images so far! The dice keep rolling... 🎲"
+        text=f"🎨 Marathon Progress: Generated {count} images so far! The dice keep rolling... 🎲"
       )
     
     # Generate the image
@@ -358,6 +358,7 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
       # If generation failed, stop the marathon
       logging.warning("Marathon generation failed for user %s, stopping marathon", username)
       context.user_data["marathon_active"] = False
+      context.user_data["marathon_stopped_by_error"] = True
       await context.bot.send_message(
         chat_id=chat_id,
         text="⚠️ Marathon stopped due to generation error. Use `/marathon` to start again!",
@@ -370,9 +371,9 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
   
   # Marathon stopped
   final_count = context.user_data.get("marathon_count", 0)
-  # Only send completion message if the marathon wasn't stopped by the /stop command
-  # (the /stop command sends its own message)
-  if not context.user_data.get("marathon_stopped_by_command", False):
+  # Only send completion message if the marathon wasn't stopped by command or error
+  # (those send their own messages)
+  if not context.user_data.get("marathon_stopped_by_command", False) and not context.user_data.get("marathon_stopped_by_error", False):
     logging.info("Marathon naturally ended for user %s after %d images", username, final_count)
     await context.bot.send_message(
       chat_id=chat_id,
@@ -382,8 +383,9 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
       parse_mode="Markdown"
     )
   
-  # Clean up the flag
+  # Clean up the flags
   context.user_data.pop("marathon_stopped_by_command", None)
+  context.user_data.pop("marathon_stopped_by_error", None)
 
 # Handler for the /stop command - stops the marathon
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
