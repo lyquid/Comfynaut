@@ -13,6 +13,7 @@ import logging
 import httpx
 import glob
 import base64
+import asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -96,8 +97,11 @@ WORKFLOWS = load_workflows()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   logging.info("Received /start command from user: %s", update.effective_user.username)
   await update.message.reply_text(
-    "Arrr, Captain! Comfynaut is ready to ferry your prompt wishes to the stars! 🦜🪐\n" +
-    "Use /workflows to choose your favorite wizard spell style."
+    "Arrr, Captain! Comfynaut is ready to ferry your prompt wishes to the stars! 🦜🪐\n\n" +
+    "🎨 Use /dream to create a single image\n" +
+    "🎠 Use /marathon to start an endless auto-generation carousel\n" +
+    "🛑 Use /stop to halt the marathon\n" +
+    "🧙 Use /workflows to choose your favorite wizard spell style"
   )
 
 # Handler for the /workflows command
@@ -205,6 +209,196 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle unexpected errors
     logging.error("Unexpected error while processing /dream command for user %s: %s", update.effective_user.username, e)
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
+
+# Utility: Generate a single image (used by both /dream and /marathon)
+async def generate_single_image(chat_id, bot, prompt: str, workflow_file: str, username: str = None):
+  """Generate a single image and send it to the chat.
+  
+  Args:
+    chat_id: The Telegram chat ID to send the image to
+    bot: The bot instance to use for sending
+    prompt: The prompt to generate image from
+    workflow_file: The workflow file to use
+    username: Username for logging purposes
+    
+  Returns:
+    True if successful, False otherwise
+  """
+  try:
+    # Send both prompt and workflow to backend API server
+    payload = {"prompt": prompt, "workflow": workflow_file}
+    logging.info("Sending payload to API server: %s", payload)
+    
+    async with httpx.AsyncClient(timeout=60.0) as client:
+      resp = await client.post(f"{API_SERVER}/dream", json=payload)
+      resp.raise_for_status()
+      data = resp.json()
+      
+      msg = data.get("message", "Hmmm, the castle gate is silent...")
+      image_url = data.get("image_url")
+      status = data.get("status")
+      echo = data.get("echo")
+
+      if status == "success" and image_url:
+        try:
+          # Replace localhost in image URL with actual API server hostname for Telegram delivery
+          image_url_visible = make_url_visible(image_url)
+          
+          # Download the generated image
+          img_resp = await client.get(image_url_visible)
+          img_resp.raise_for_status()
+          
+          img_bytes = BytesIO(img_resp.content)
+          img_bytes.name = "comfynaut_image.png"
+          caption = f"{msg}\n(Prompt: {prompt})\n(Workflow: {workflow_file})"
+          # Truncate caption to fit Telegram's 1024 character limit
+          caption = truncate_caption(caption)
+          # Send the image to the user
+          await bot.send_photo(chat_id=chat_id, photo=img_bytes, caption=caption)
+          logging.info("Sent image to user %s!", username)
+          return True
+        except Exception as img_err:
+          logging.error("Error downloading or sending image for user %s: %s", username, img_err)
+          await bot.send_message(chat_id=chat_id, text=f"🏰 Wizard's castle: {msg}\nEcho: {echo}\nBut alas, the art could not be delivered: {img_err}")
+          return False
+      else:
+        # No image to send, reply with message and echo
+        await bot.send_message(chat_id=chat_id, text=f"🏰 Wizard's castle: {msg}\nEcho: {echo}")
+        logging.warning("No image to send for user: %s", username)
+        return False
+
+  except httpx.RequestError as e:
+    # Handle network errors when contacting the API server
+    logging.error("Request error while generating image for user %s: %s", username, e)
+    await bot.send_message(chat_id=chat_id, text=f"⚠️ Unable to reach the wizard's castle: {e}")
+    return False
+  except Exception as e:
+    # Handle unexpected errors
+    logging.error("Unexpected error while generating image for user %s: %s", username, e)
+    await bot.send_message(chat_id=chat_id, text=f"⚠️ An unexpected error occurred: {e}")
+    return False
+
+# Handler for the /marathon command - endless auto-generation carousel
+async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  prompt = " ".join(context.args)
+  logging.info("Received /marathon command with prompt: '%s' from user: %s", prompt, update.effective_user.username)
+
+  if not prompt:
+    logging.warning("No prompt provided by user: %s", update.effective_user.username)
+    await update.message.reply_text(
+      "🎠 **Image Marathon Mode** 🎠\n\n"
+      "Start an endless auto-generation carousel! Images keep coming with new seeds until you say STOP!\n\n"
+      "Usage: `/marathon <prompt>`\n\n"
+      "Example: `/marathon a majestic dragon in various poses`\n\n"
+      "To stop: Use `/stop` command",
+      parse_mode="Markdown"
+    )
+    return
+
+  # Stop any existing marathon for this user
+  if context.user_data.get("marathon_active"):
+    context.user_data["marathon_active"] = False
+    await asyncio.sleep(1)  # Give time for the previous marathon to stop
+
+  # Retrieve the user's selected workflow or use default
+  workflow_file = context.user_data.get("selected_workflow")
+  if not workflow_file:
+    workflow_file = list(WORKFLOWS.values())[0]
+    context.user_data["selected_workflow"] = workflow_file
+  
+  logging.info("Starting marathon with workflow file: %s", workflow_file)
+
+  # Set marathon state
+  context.user_data["marathon_active"] = True
+  context.user_data["marathon_prompt"] = prompt
+  context.user_data["marathon_workflow"] = workflow_file
+  context.user_data["marathon_count"] = 0
+
+  await update.message.reply_text(
+    f"🎠 **MARATHON MODE ACTIVATED!** 🎠\n\n"
+    f"🦜 Setting sail on an endless image-generating voyage!\n"
+    f"📜 Prompt: {prompt}\n"
+    f"🧙 Workflow: `{workflow_file}`\n\n"
+    f"Images will keep flowing with new seeds until you use `/stop`\n"
+    f"⚡ The winds are favorable, Captain! Let the carousel begin!",
+    parse_mode="Markdown"
+  )
+
+  # Start the generation loop
+  chat_id = update.effective_chat.id
+  username = update.effective_user.username
+  
+  while context.user_data.get("marathon_active", False):
+    # Increment counter
+    context.user_data["marathon_count"] = context.user_data.get("marathon_count", 0) + 1
+    count = context.user_data["marathon_count"]
+    
+    logging.info("Marathon generation #%d for user %s", count, username)
+    
+    # Show typing action to indicate image is being prepared
+    await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.UPLOAD_PHOTO)
+    
+    # Send a progress message every 5 images
+    if count % 5 == 1 and count > 1:
+      await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🎨 Marathon Progress: Generated {count-1} images so far! The dice keep rolling... 🎲"
+      )
+    
+    # Generate the image
+    success = await generate_single_image(
+      chat_id=chat_id,
+      bot=context.bot,
+      prompt=prompt,
+      workflow_file=workflow_file,
+      username=username
+    )
+    
+    if not success:
+      # If generation failed, stop the marathon
+      logging.warning("Marathon generation failed for user %s, stopping marathon", username)
+      context.user_data["marathon_active"] = False
+      await context.bot.send_message(
+        chat_id=chat_id,
+        text="⚠️ Marathon stopped due to generation error. Use `/marathon` to start again!",
+        parse_mode="Markdown"
+      )
+      break
+    
+    # Small delay between generations to avoid overwhelming the system
+    await asyncio.sleep(2)
+  
+  # Marathon stopped
+  final_count = context.user_data.get("marathon_count", 0)
+  if context.user_data.get("marathon_active") == False:
+    logging.info("Marathon stopped for user %s after %d images", username, final_count)
+    await context.bot.send_message(
+      chat_id=chat_id,
+      text=f"🏁 **MARATHON COMPLETE!** 🏁\n\n"
+           f"Generated {final_count} unique images with your prompt!\n"
+           f"May the seeds ever be in your favor! 🎲✨",
+      parse_mode="Markdown"
+    )
+
+# Handler for the /stop command - stops the marathon
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  logging.info("Received /stop command from user: %s", update.effective_user.username)
+  
+  if context.user_data.get("marathon_active"):
+    context.user_data["marathon_active"] = False
+    count = context.user_data.get("marathon_count", 0)
+    await update.message.reply_text(
+      f"🛑 **STOP!** You shall not pass... any further! 🧙‍♂️\n\n"
+      f"Marathon stopped after {count} images.\n"
+      f"Use `/marathon <prompt>` to start a new voyage!",
+      parse_mode="Markdown"
+    )
+  else:
+    await update.message.reply_text(
+      "🤔 No marathon is currently running.\n"
+      "Use `/marathon <prompt>` to start one!",
+      parse_mode="Markdown"
+    )
 
 # Handler for the /img2vid command
 async def img2vid(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -465,6 +659,8 @@ if __name__ == '__main__':
   # Register command and callback handlers
   app.add_handler(CommandHandler("start", start))
   app.add_handler(CommandHandler("dream", dream))
+  app.add_handler(CommandHandler("marathon", marathon))
+  app.add_handler(CommandHandler("stop", stop))
   app.add_handler(CommandHandler("img2img", img2img))
   app.add_handler(CommandHandler("img2vid", img2vid))
   app.add_handler(CommandHandler("workflows", workflows))
@@ -476,5 +672,5 @@ if __name__ == '__main__':
   # Handler for standalone photos (without /img2img or /img2vid caption)
   app.add_handler(MessageHandler(filters.PHOTO & ~filters.CaptionRegex(r'^/img2img') & ~filters.CaptionRegex(r'^/img2vid'), handle_photo))
   logging.info("Bot is now polling for orders among the stars.")
-  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, /img2img, /img2vid, or /workflows")
+  print("🎩🦜 Comfynaut Telegram Parrot listening for orders! Use /start, /dream, /marathon, /stop, /img2img, /img2vid, or /workflows")
   app.run_polling()
