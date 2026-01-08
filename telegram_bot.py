@@ -141,10 +141,11 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
   prompt = " ".join(context.args)
   logging.info("Received /dream command with prompt: '%s' from user: %s", prompt, update.effective_user.username)
 
-  # Retrieve the user's selected workflow or use default (first available)
+  # Retrieve the user's selected workflow or use default (t2i - SDXL.json for text-to-image)
   workflow_file = context.user_data.get("selected_workflow")
   if not workflow_file:
-    workflow_file = list(WORKFLOWS.values())[0]
+    # Default to SDXL for text-to-image generation
+    workflow_file = "t2i - SDXL.json"
     context.user_data["selected_workflow"] = workflow_file
   
   logging.info("Using workflow file: %s", workflow_file)
@@ -307,10 +308,11 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["marathon_active"] = False
     await asyncio.sleep(1)  # Give time for the previous marathon to stop
 
-  # Retrieve the user's selected workflow or use default
+  # Retrieve the user's selected workflow or use default (t2i - SDXL.json for text-to-image)
   workflow_file = context.user_data.get("selected_workflow")
   if not workflow_file:
-    workflow_file = list(WORKFLOWS.values())[0]
+    # Default to SDXL for text-to-image generation
+    workflow_file = "t2i - SDXL.json"
     context.user_data["selected_workflow"] = workflow_file
   
   logging.info("Starting marathon with workflow file: %s", workflow_file)
