@@ -211,7 +211,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"⚠️ An unexpected error occurred: {e}")
 
 # Utility: Generate a single image (used by both /dream and /marathon)
-async def generate_single_image(chat_id, bot, prompt: str, workflow_file: str, username: str = None):
+async def generate_single_image(chat_id, bot, prompt: str, workflow_file: str, username: str = None, send_caption: bool = True):
   """Generate a single image and send it to the chat.
   
   Args:
@@ -220,6 +220,7 @@ async def generate_single_image(chat_id, bot, prompt: str, workflow_file: str, u
     prompt: The prompt to generate image from
     workflow_file: The workflow file to use
     username: Username for logging purposes
+    send_caption: Whether to send caption with the image (default: True)
     
   Returns:
     True if successful, False otherwise
@@ -250,11 +251,17 @@ async def generate_single_image(chat_id, bot, prompt: str, workflow_file: str, u
           
           img_bytes = BytesIO(img_resp.content)
           img_bytes.name = "comfynaut_image.png"
-          caption = f"{msg}\n(Prompt: {prompt})\n(Workflow: {workflow_file})"
-          # Truncate caption to fit Telegram's 1024 character limit
-          caption = truncate_caption(caption)
-          # Send the image to the user
-          await bot.send_photo(chat_id=chat_id, photo=img_bytes, caption=caption)
+          
+          # Send the image with or without caption based on send_caption parameter
+          if send_caption:
+            caption = f"{msg}\n(Prompt: {prompt})\n(Workflow: {workflow_file})"
+            # Truncate caption to fit Telegram's 1024 character limit
+            caption = truncate_caption(caption)
+            await bot.send_photo(chat_id=chat_id, photo=img_bytes, caption=caption)
+          else:
+            # Send without caption (for marathon mode)
+            await bot.send_photo(chat_id=chat_id, photo=img_bytes)
+          
           logging.info("Sent image to user %s!", username)
           return True
         except Exception as img_err:
@@ -345,13 +352,14 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=f"🎨 Marathon Progress: Generated {count} images so far! The dice keep rolling... 🎲"
       )
     
-    # Generate the image
+    # Generate the image without caption (marathon mode)
     success = await generate_single_image(
       chat_id=chat_id,
       bot=context.bot,
       prompt=prompt,
       workflow_file=workflow_file,
-      username=username
+      username=username,
+      send_caption=False  # No caption in marathon mode
     )
     
     if not success:
@@ -366,8 +374,10 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
       )
       break
     
-    # Small delay between generations to avoid overwhelming the system
-    await asyncio.sleep(2)
+    # Check if stop was called during generation
+    if not context.user_data.get("marathon_active", False):
+      logging.info("Marathon stopped by user command during generation for user %s", username)
+      break
   
   # Marathon stopped
   final_count = context.user_data.get("marathon_count", 0)
