@@ -49,6 +49,8 @@ def run_telegram_bot():
   # Register command handlers for bot commands
   app.add_handler(CommandHandler("start", telegram_bot.start))
   app.add_handler(CommandHandler("dream", telegram_bot.dream))
+  app.add_handler(CommandHandler("marathon", telegram_bot.marathon))
+  app.add_handler(CommandHandler("stop", telegram_bot.stop))
   app.add_handler(CommandHandler("workflows", telegram_bot.workflows))
   app.add_handler(CommandHandler("img2img", telegram_bot.img2img))
   app.add_handler(CommandHandler("img2vid", telegram_bot.img2vid))
