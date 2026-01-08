@@ -370,8 +370,10 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
   
   # Marathon stopped
   final_count = context.user_data.get("marathon_count", 0)
-  if context.user_data.get("marathon_active") == False:
-    logging.info("Marathon stopped for user %s after %d images", username, final_count)
+  # Only send completion message if the marathon wasn't stopped by the /stop command
+  # (the /stop command sends its own message)
+  if not context.user_data.get("marathon_stopped_by_command", False):
+    logging.info("Marathon naturally ended for user %s after %d images", username, final_count)
     await context.bot.send_message(
       chat_id=chat_id,
       text=f"🏁 **MARATHON COMPLETE!** 🏁\n\n"
@@ -379,6 +381,9 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
            f"May the seeds ever be in your favor! 🎲✨",
       parse_mode="Markdown"
     )
+  
+  # Clean up the flag
+  context.user_data.pop("marathon_stopped_by_command", None)
 
 # Handler for the /stop command - stops the marathon
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -386,6 +391,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
   
   if context.user_data.get("marathon_active"):
     context.user_data["marathon_active"] = False
+    context.user_data["marathon_stopped_by_command"] = True
     count = context.user_data.get("marathon_count", 0)
     await update.message.reply_text(
       f"🛑 **STOP!** You shall not pass... any further! 🧙‍♂️\n\n"
