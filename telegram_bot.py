@@ -331,10 +331,17 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parse_mode="Markdown"
   )
 
-  # Start the generation loop
+  # Start the generation loop in a background task so /stop can interrupt
   chat_id = update.effective_chat.id
   username = update.effective_user.username
   
+  # Create background task for the marathon loop
+  asyncio.create_task(_run_marathon_loop(context, chat_id, username, prompt, workflow_file))
+
+
+# Background task that runs the marathon loop
+async def _run_marathon_loop(context: ContextTypes.DEFAULT_TYPE, chat_id: int, username: str, prompt: str, workflow_file: str):
+  """Run the marathon generation loop in the background."""
   while context.user_data.get("marathon_active", False):
     # Increment counter
     context.user_data["marathon_count"] = context.user_data.get("marathon_count", 0) + 1
@@ -351,6 +358,11 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=chat_id,
         text=f"🎨 Marathon Progress: Generated {count} images so far! The dice keep rolling... 🎲"
       )
+    
+    # Check if stop was called before starting generation
+    if not context.user_data.get("marathon_active", False):
+      logging.info("Marathon stopped by user command before generation #%d for user %s", count, username)
+      break
     
     # Generate the image without caption (marathon mode)
     success = await generate_single_image(
@@ -376,7 +388,7 @@ async def marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Check if stop was called during generation
     if not context.user_data.get("marathon_active", False):
-      logging.info("Marathon stopped by user command during generation for user %s", username)
+      logging.info("Marathon stopped by user command after generation #%d for user %s", count, username)
       break
   
   # Marathon stopped
