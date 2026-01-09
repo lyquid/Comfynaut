@@ -25,12 +25,13 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 
 - 🦜 **Telegram Integration** - Control everything from your favorite messaging app
 - 🎨 **ComfyUI Powered** - Leverage the full power of ComfyUI workflows
+- 🖼️ **Text-to-Image Generation** - Create stunning images from text prompts using `/dream` command with SDXL workflows and LoRA support
+- 🎨 **Image-to-Image Transformation** - Transform existing images with text prompts via `/img2img` command
+- 🎬 **Image-to-Video Generation** - Animate still images into videos using `/img2vid` command
+- 🔧 **Dynamic Workflow Selection** - Choose from multiple workflows via `/workflows` command in Telegram
 - 🎠 **Marathon Mode** - Endless auto-generation carousel with new seeds until you say stop!
 - ⚡ **Fast & Asynchronous** - Async HTTP requests with httpx for smooth sailing
 - 🔌 **WebSocket Communication** - Real-time, event-driven updates from ComfyUI (no polling!)
-- 🔧 **Dynamic Workflow Selection** - Choose from multiple workflows via inline menu
-- 🖼️ **Image-to-Image** - Transform existing images with text prompts
-- 🎬 **Image-to-Video** - Generate videos from still images
 - 🧙 **Smart Node Detection** - Automatically finds positive prompt and image load nodes
 - 🎲 **Random Seed Generation** - Each request generates unique variations
 - 🎯 **Quality Prompts** - Automatically enhances prompts with quality keywords
@@ -58,6 +59,31 @@ python main.py
 ### Running as a Systemd Service
 
 Create `/etc/systemd/system/comfynaut.service`:
+
+> **⚠️ Important:** If you're using a virtual environment (recommended), you **must** use the venv's Python interpreter in `ExecStart`. Using the system Python (`/usr/bin/python3`) will cause import errors because the dependencies from `requirements.txt` won't be available unless installed globally.
+
+**For Virtual Environment Setup (Recommended):**
+```ini
+[Unit]
+Description=Comfynaut - Telegram Bot for ComfyUI
+After=network.target
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/Comfynaut
+ExecStart=/path/to/Comfynaut/venv/bin/python main.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+# Optional: Load environment variables from .env file
+# EnvironmentFile=/path/to/Comfynaut/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**For Global Installation (System Python):**
 ```ini
 [Unit]
 Description=Comfynaut - Telegram Bot for ComfyUI
@@ -71,10 +97,14 @@ ExecStart=/usr/bin/python3 main.py
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
+# Optional: Load environment variables from .env file
+# EnvironmentFile=/path/to/Comfynaut/.env
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+> 💡 **Note:** The `EnvironmentFile` directive allows systemd to load environment variables from your `.env` file. If you use this, make sure the `.env` file has appropriate permissions (`chmod 600 .env`) to protect sensitive tokens.
 
 Then enable and start:
 ```bash
@@ -266,15 +296,19 @@ Try these magical prompts:
 
 - **`workflows/`** 📁 - ComfyUI workflow JSON files
   - Dynamically loaded at runtime - add any `.json` workflow here
-  - `text2img_LORA.json` - Default text-to-image workflow with LoRA support
-  - `basic_sdxl_t2i.json` - Basic SDXL text-to-image workflow
+  - `t2i - SDXL.json` - Default text-to-image workflow with SDXL
+  - `i2i - CyberRealistic Pony 14.1.json` - Image-to-image transformation workflow
+  - `i2v - WAN 2.2 Smooth Workflow v2.0.json` - Image-to-video animation workflow
   - Users can select workflows via `/workflows` command in Telegram
 
 ## 🎯 Workflow Customization
 
 Comfynaut uses ComfyUI workflow JSON files stored in the `workflows/` directory. The included workflows are:
-- `text2img_LORA.json` - Text-to-image generation with LoRA support
-- `basic_sdxl_t2i.json` - Basic SDXL text-to-image workflow
+- `t2i - SDXL.json` - Text-to-image generation with SDXL (default for `/dream` command)
+- `t2i - CyberRealistic Pony 14.1.json` - CyberRealistic Pony text-to-image workflow
+- `t2i - One obsession 14 2.4D_nsfw.json` - One Obsession text-to-image workflow
+- `i2i - CyberRealistic Pony 14.1.json` - Image-to-image transformation workflow (used by `/img2img`)
+- `i2v - WAN 2.2 Smooth Workflow v2.0.json` - Image-to-video animation workflow (used by `/img2vid`)
 
 > ⚠️ **Important**: The workflow files contain references to specific model files. You may need to update these to match the models installed in your ComfyUI setup. Edit the workflow JSON files and replace the `ckpt_name` and `lora_name` values with your available models.
 
