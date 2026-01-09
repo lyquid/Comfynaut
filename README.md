@@ -26,7 +26,7 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 - 🦜 **Telegram Integration** - Control everything from your favorite messaging app
 - 🎨 **ComfyUI Powered** - Leverage the full power of ComfyUI workflows
 - 🖼️ **Text-to-Image Generation** - Create stunning images from text prompts using `/dream` command with SDXL workflows and LoRA support
-- 🎨 **Image-to-Image Transformation** - Transform existing images with text prompts via `/img2img` command
+- 🔄 **Image-to-Image Transformation** - Transform existing images with text prompts via `/img2img` command
 - 🎬 **Image-to-Video Generation** - Animate still images into videos using `/img2vid` command
 - 🔧 **Dynamic Workflow Selection** - Choose from multiple workflows via `/workflows` command in Telegram
 - 🎠 **Marathon Mode** - Endless auto-generation carousel with new seeds until you say stop!
