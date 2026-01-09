@@ -25,7 +25,7 @@ Simply send a message to your Telegram bot, and watch as your imagination comes 
 
 - 🦜 **Telegram Integration** - Control everything from your favorite messaging app
 - 🎨 **ComfyUI Powered** - Leverage the full power of ComfyUI workflows
-- 🖼️ **Text-to-Image Generation** - Create stunning images from text prompts using `/dream` command with SDXL workflows and LoRA support
+- 🖼️ **Text-to-Image Generation** - Create stunning images from text prompts using `/dream` command with SDXL and other workflows (some support LoRA)
 - 🔄 **Image-to-Image Transformation** - Transform existing images with text prompts via `/img2img` command
 - 🎬 **Image-to-Video Generation** - Animate still images into videos using `/img2vid` command
 - 🔧 **Dynamic Workflow Selection** - Choose from multiple workflows via `/workflows` command in Telegram
@@ -60,7 +60,7 @@ python main.py
 
 Create `/etc/systemd/system/comfynaut.service`:
 
-> **⚠️ Important:** If you're using a virtual environment (recommended), you **must** use the venv's Python interpreter in `ExecStart`. Using the system Python (`/usr/bin/python3`) will cause import errors because the dependencies from `requirements.txt` won't be available unless installed globally.
+> **⚠️ Important:** If you're using a virtual environment (recommended), you must use the venv's Python interpreter in ExecStart. Using the system Python (/usr/bin/python3) will cause import errors because the dependencies from requirements.txt won't be available unless installed globally.
 
 **For Virtual Environment Setup (Recommended):**
 ```ini
@@ -104,7 +104,10 @@ Environment=PYTHONUNBUFFERED=1
 WantedBy=multi-user.target
 ```
 
-> 💡 **Note:** The `EnvironmentFile` directive allows systemd to load environment variables from your `.env` file. If you use this, make sure the `.env` file has appropriate permissions (`chmod 600 .env`) to protect sensitive tokens.
+> 💡 **Note:** The `EnvironmentFile` directive allows systemd to load environment variables from your `.env` file. To use this feature:
+> 1. Uncomment the `EnvironmentFile` line in the service file
+> 2. Replace `/path/to/Comfynaut/.env` with the absolute path to your `.env` file
+> 3. Set appropriate permissions to protect sensitive tokens: `chmod 600 /path/to/Comfynaut/.env`
 
 Then enable and start:
 ```bash
